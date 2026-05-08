@@ -1,0 +1,59 @@
+{
+  "summary": "Iteration 21 - Company Logo upload feature validated end-to-end. Backend 10/10 pytest pass covering: valid PNG upload returning data URL, GET /api/companies exposes logo_data_url, rejection of invalid content-type (400), <100 byte file (400), 200 bytes of garbage claiming image/png caught by PIL verify (400), oversized JPEG > 2MB (400), collaborator role forbidden (403), DELETE unsets logo_* fields, PDFs (opening-minutes/closing-minutes/report) embed /XObject only when admin's active company 'default' has a logo (verified both positive and negative case). Frontend Playwright verified: create dialog shows 'Logo de la Empresa (opcional)' with logo-file-input, logo-choose-btn, logo-preview-img; selecting a valid PNG renders the preview; newly created company card shows the logo via company-logo-<id> img with a data:image base64 src; logo-update-<id> file input replaces the logo and the card refreshes. The logo-remove-<id> red X button triggers the backend DELETE correctly at API level (covered by pytest) but uses window.confirm() which Playwright does not auto-accept, so the UI removal could not be auto-verified in this run. Not an app bug.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Backend (10/10):",
+    "  TestLogoUpload::test_upload_valid_png - PASSED",
+    "  TestLogoUpload::test_get_companies_exposes_logo_data_url - PASSED",
+    "  TestLogoUpload::test_reject_invalid_content_type - PASSED",
+    "  TestLogoUpload::test_reject_too_small - PASSED",
+    "  TestLogoUpload::test_reject_non_image_bytes_with_image_content_type - PASSED",
+    "  TestLogoUpload::test_reject_oversized (>2MB JPEG) - PASSED",
+    "  TestLogoUpload::test_collaborator_cannot_upload (403) - PASSED",
+    "  TestLogoUpload::test_delete_logo_unsets_fields - PASSED",
+    "  TestPDFLogoEmbedding::test_pdfs_without_logo_have_no_xobject (3 PDFs) - PASSED",
+    "  TestPDFLogoEmbedding::test_pdfs_with_logo_embed_xobject (3 PDFs) - PASSED",
+    "",
+    "Frontend Playwright:",
+    "  Login admin@traciumsst.com - PASSED",
+    "  /companies [data-testid=companies-page] loads - PASSED",
+    "  Create dialog shows logo-choose-btn + logo-file-input - PASSED",
+    "  Selecting a valid PNG shows [data-testid=logo-preview-img] - PASSED",
+    "  Company created with logo -> card shows [data-testid=company-logo-<id>] with data:image/png;base64,... src - PASSED",
+    "  Row logo-update-<id> re-uploads and card refreshes with new logo - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration21_company_logo.py",
+    "/app/test_reports/pytest/iteration21_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py L3103-3134 upload_company_logo: solid validation (content-type allow-list + size min/max + PIL verify). Consider also rejecting oversized AFTER base64 encoding since the stored base64 string is ~33% larger than raw bytes; MongoDB document limit is 16MB so a 2MB raw logo -> ~2.7MB base64 is safe but worth a comment.",
+    "Companies.js L93-97 removeLogo uses window.confirm which blocks e2e automation. Minor testability concern - consider swapping to an AlertDialog (shadcn) with data-testid-ed confirm/cancel buttons for future Playwright coverage. Functional behavior is correct.",
+    "server.py _company_logo_flowable L1764-1780: correctly catches all exceptions and returns None, so PDF generation is never broken by a bad logo. Good defensive coding.",
+    "server.py POST /companies/{id}/logo uses require_role('admin','sgsst_manager') but GET /companies returns logo_data_url to any authenticated user - acceptable since logos are not sensitive, but worth confirming intent."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration21_company_logo.py (new)",
+    "/app/test_reports/iteration_21.json (new)",
+    "/app/test_reports/pytest/iteration21_results.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "~95% (create-with-logo + card display + update verified; remove verified via backend test, UI window.confirm not auto-acceptable)"},
+  "test_credentials": {
+    "admin_email": "admin@traciumsst.com",
+    "admin_password": "TraciumSST2026!"
+  },
+  "seed_data_creation": "Pytest fixture creates TEST_LogoCompany (cleaned up on teardown) and a TEST_Audit for logo PDF (cleaned up). Frontend Playwright run created one company 'TEST_UI_Logo_<ts>' left behind (not auto-deleted); admin can remove via UI if desired.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Logo upload feature fully verified. If future test agents need auth with requests, use requests.Session() and POST /api/auth/login-email; the backend sets httpOnly session cookie (no token field in JSON body). All PDF endpoints correctly embed the logo only when the admin's active company ('default') has logo_data_url set. The three PDFs that embed logo: /api/audits/{id}/opening-minutes/pdf, /api/audits/{id}/closing-minutes/pdf, /api/audits/{id}/report/pdf.",
+  "rca_of_the_issue": "Not applicable - feature addition verified without issues. Two initial test failures were due to wrong endpoint (/auth/email/login vs /auth/login-email) and response shape (cookie-based auth vs JSON token); fixed the test to use requests.Session with cookie auth."
+}

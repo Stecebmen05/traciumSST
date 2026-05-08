@@ -1,0 +1,98 @@
+{
+  "theme": "light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "domain": "Enterprise SaaS / Compliance / SG-SST",
+  "typography": {
+    "headings": {
+      "font": "Outfit",
+      "weight": "font-bold",
+      "tracking": "tracking-tight",
+      "rules": "Never use Inter, Roboto, or generic sans for headings. Use fluid scales up to text-6xl."
+    },
+    "body": {
+      "font": "IBM Plex Sans",
+      "weight": "font-normal",
+      "leading": "leading-relaxed"
+    },
+    "mono": {
+      "font": "JetBrains Mono",
+      "rules": "Use for data tables, metrics, and incident IDs."
+    }
+  },
+  "colors": {
+    "background": {
+      "default": "#F8F9FA",
+      "card": "#FFFFFF",
+      "sidebar": "#FFFFFF"
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#475569",
+      "muted": "#94A3B8"
+    },
+    "primary": {
+      "DEFAULT": "#0047AB",
+      "hover": "#003380",
+      "foreground": "#FFFFFF"
+    },
+    "accent": {
+      "hazard": "#D90429",
+      "warning": "#FFC300",
+      "safe": "#2A9D8F",
+      "info": "#3B82F6"
+    },
+    "border": "#E2E8F0"
+  },
+  "spacing_and_layout": {
+    "grid": "Control Room Grid (tight gaps gap-4 or gap-6, dense data).",
+    "padding": "Generous spacing philosophy (p-6 to p-8 for cards) to let data breathe.",
+    "radius": "Subtle roundness, max 8px border-radius (rounded-lg).",
+    "borders": "1px solid borders for definition, minimal reliance on shadows. Use Grid Borders (The Technical Look) for data-heavy sections."
+  },
+  "components": {
+    "buttons": "Flat solid colors, 1px border. Hover state should darken the hue.",
+    "cards": "Flat background, 1px border (#E2E8F0), no shadow. Hover: Slight lift (-translate-y-1), subtle shadow (shadow-md).",
+    "forms": "Shadcn UI forms. Minimalist borders. Labels must be bold and concise.",
+    "tables": "Shadcn/UI or custom. Zebra-striped or 1px border bottom. Use JetBrains Mono for numbers. Sparklines for trends.",
+    "charts": "Shadcn chart components (Recharts). Color-blind-friendly palettes using the accent colors.",
+    "navigation": "Sidebar Navigation (collapsible). Active state: Light blue background with primary color text and left border indicator.",
+    "icons": "lucide-react"
+  },
+  "motion": {
+    "hover": "Subtle border color change, text color change, or -translate-y-1 on cards.",
+    "page_transition": "Simple fade-in (opacity 0 to 1).",
+    "alerts": "Slide-in from top right (Sonner toasts)."
+  },
+  "media": {
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1561518065-297fc6fdad7d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNTl8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMGdlb21ldHJpYyUyMGFyY2hpdGVjdHVyZSUyMGxpZ2h0fGVufDB8fHx8MTc3NjIxMzczMHww&ixlib=rb-4.1.0&q=85",
+        "description": "Abstract geometric architecture, light theme",
+        "category": "login_background",
+        "usage": "Use as a split-screen background on the login/authentication page to convey a clean, corporate structure."
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1550071593-fd1bdaf1f93c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1MTN8MHwxfHNlYXJjaHwzfHxjb3Jwb3JhdGUlMjBvZmZpY2UlMjBwZW9wbGUlMjB3b3JraW5nfGVufDB8fHx8MTc3NjIxMzcxOXww&ixlib=rb-4.1.0&q=85",
+        "description": "Two women using laptops in a corporate setting",
+        "category": "onboarding_or_team",
+        "usage": "Use in 'Training Management' empty state or 'About' page if one exists, to add a human element."
+      },
+      {
+        "url": "https://images.pexels.com/photos/7653461/pexels-photo-7653461.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Spacious contemporary office space",
+        "category": "dashboard_welcome",
+        "usage": "Can be used as a subtle banner background for the 'Welcome back' section on the main KPI dashboard, overlaid with heavy white gradient to maintain text readability."
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Install required fonts from Google Fonts: Outfit, IBM Plex Sans, JetBrains Mono.",
+    "Use standard lucide-react icons for the sidebar navigation and action buttons.",
+    "Implement a 'Control Room' grid for the dashboard: grid-cols-1 md:grid-cols-3 lg:grid-cols-4 with gap-6. Prioritize data density but maintain clarity.",
+    "The UI must feel like an authoritative compliance tool. No playful borders or excessive shadows. Rely on 1px borders and high contrast.",
+    "Implement Shadcn UI extensively for the tables, dialogs (for Hazard Matrix and Incidents), forms (for Checklists), and Charts (for KPI Dashboard).",
+    "All interactive elements must have a data-testid attribute in kebab-case (e.g., data-testid='sidebar-nav-audit').",
+    "For the Document Management module, use an organized list or table view with clear version numbers in JetBrains Mono font.",
+    "Highlight non-compliance, hazards, and accidents using the hazard accent color (#D90429) to draw immediate attention."
+  ]
+}

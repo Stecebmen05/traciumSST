@@ -1,0 +1,42 @@
+{
+  "summary": "Sprint 27 testing: Action Plan creation enhanced with action_type/responsible/start_date/due_date/resources/evidence + 3 AI assist buttons (action, resources, evidence). Backend (7/7 pytest) and Frontend (full E2E) both pass against production preview URL.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "passed_tests": [
+    "Backend POST /api/audits/ai/assist type=action_plan_action returns Spanish corrective action paragraph (>30 chars, no Error: prefix).",
+    "Backend POST /api/audits/ai/assist type=action_plan_resources returns Spanish list of recursos.",
+    "Backend POST /api/audits/ai/assist type=action_plan_evidence returns Spanish evidence text.",
+    "Backend POST /api/action-plans persists action_type=preventive, responsible, start_date=2026-02-01, due_date=2026-04-30, resources, evidence. Verified via GET /api/action-plans?audit_id and GET /api/audits/{id}.",
+    "Backend POST /api/action-plans without optional fields defaults action_type='corrective' and start_date/resources/evidence to ''.",
+    "Frontend dialog: ALL 12 data-testids present (ap-finding-select, ap-type-select, ap-action-input, ap-responsible, ap-start-date, ap-due-date, ap-resources-input, ap-evidence-input, ap-ai-action, ap-ai-resources, ap-ai-evidence, save-action-plan-btn).",
+    "Frontend type-select options confirmed exactly: ['Correctiva', 'Preventiva', 'Mejora'].",
+    "Frontend save-action-plan-btn correctly disabled until finding+action+responsible+due_date filled. Re-enabled after fill.",
+    "Frontend ap-ai-action correctly disabled until a finding is selected. Becomes enabled after finding selection. Clicking it calls /api/audits/ai/assist and populates ap-action-input with 410 chars of Spanish text from gpt-5.2.",
+    "Frontend save creates plan and 'Plan creado' toast appears. New plan appears in list with Preventiva (orange) badge, responsable 'TEST_UI Coord SST', Inicio 2026-02-15, Fin 2026-05-30.",
+    "Frontend list display: new plan shows Recursos and Evidencia blocks (when present); pre-existing plans without these fields hide them gracefully. Old plan without start_date shows 'Inicio: N/A' instead of breaking. No console errors from regression."
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration27_action_plan_ai.py",
+    "/app/test_reports/pytest/iteration27_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py L1802-1824 create_action_plan: cleanly accepts the 5 new fields with sensible defaults (action_type='corrective', empty strings). _id correctly excluded via d.pop('_id', None).",
+    "server.py L2457-2459 ai_audit_assist: 3 new system prompts are well-scoped, Spanish, with explicit length limits (80/free/50 words) preventing verbose output.",
+    "Audits.js L851-909 ActionPlansView dialog: all 12 testids present, AI buttons correctly gated by !form.finding_id, save btn correctly gated by all 4 required fields (finding/action/responsible/due_date).",
+    "Audits.js list rendering: backwards-compatible — Recursos and Evidencia blocks only render when truthy, start_date renders 'N/A' when empty so old plans created pre-sprint do not break.",
+    "Minor UX: Tipo de Accion select defaults to 'Correctiva' which is reasonable. Could surface visual color preview on select to help user, but not required."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration27_action_plan_ai.py (new)"
+  ],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100% (all dialog fields, AI flow, save flow, regression all verified)"},
+  "test_credentials": {
+    "admin": "admin@traciumsst.com / TraciumSST2026!"
+  },
+  "seed_data_creation": "Created 1 finding (TEST_IT27 Hallazgo) under audit TEST_IT24_open_f3344d via API + 2 plans via API (TEST_IT27 Capacitar..., TEST_IT27 Accion correctiva) + 1 plan via UI (Preventiva, responsable=TEST_UI Coord SST). All prefixed with TEST_IT27 / TEST_UI for easy cleanup.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Sprint 27 fully functional. AI takes ~10-15s per call (gpt-5.2). When testing UI, must first click an audit card in Programacion tab to set selectedAudit, then switch to Plan de Accion tab — direct tab click without selecting an audit shows 'Selecciona una auditoria primero'. The 401 errors on /api/auth/me in console are pre-login probes, not bugs. Test creds in /app/memory/test_credentials.md.",
+  "rca_of_the_issue": "N/A - feature testing, no bugs found."
+}

@@ -1,0 +1,60 @@
+{
+  "summary": "Iteration 23 - Role-specific audit rules tested. Backend pytest 25/25 PASS covering (a) sgsst_manager PUT /api/audits/{id}/checklist/{itemId} -> 403, PUT /api/findings/{id} -> 403, POST /api/findings -> 403, PUT /api/audits/{id} -> 403; (b) sgsst_manager CRUD on /api/action-plans works (POST/PUT/follow-up all 200); (c) PDF gating: sgsst_manager 403 on opening/closing/report PDFs for an open (planned) audit and 200 for a closed audit, admin+auditor always 200 on both states; (d) auditor CAN PUT audit, generate checklist, PUT checklist item, and POST findings/generate-from-checklist; (e) AI narrative assist 200 + non-empty result for types opening_narrative/closing_narrative/report_narrative (gpt-5.2); (f) PUT /api/audits/{id}/ai-redaction persists narrative_opening/closing/report and GET /api/audits/{id} returns them; (g) Generated opening-minutes PDF size grows materially (>300 bytes) when narrative_opening is filled vs empty using non-repetitive random text, proving injection; (h) /rbac/permissions flags exactly match spec for admin, sgsst_manager (can_edit_audit_items=False, can_edit_action_plans=True, can_use_ai_narrative=False, can_view_documents/hazards/training/reports/implementation=True) and auditor (all three audit flags True, can_report_incidents=False, can_view_documents/hazards/training/reports/implementation=False, can_view_audits=True). Frontend Playwright revealed TWO bugs: (1) auditor sidebar shows 'Incidentes' (in addition to Dashboard + Auditorias) - spec requires ONLY Dashboard + Auditorias; backend permission flag can_report_incidents=False for auditor is correct, so Layout.js 'Incidentes' nav item is NOT gated by that flag; (2) sgsst_manager AuditList still renders 'Acta Apertura' and 'Acta Cierre' buttons on at least some open (Programada) audit rows (first row TEST_IT24_open_f3344d) - spec requires these to be hidden entirely for mgr on non-closed audits, showing only 'Descargas disponibles al cerrar' instead. MGR sidebar correctly shows the 8 expected modules. MGR Consolidado empty state ('Selecciona una auditoria primero') blocks verifying the badge without audit selection.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Layout.js sidebar - Auditor role", "issue": "Auditor sees 'Incidentes' in sidebar - should only show Dashboard + Auditorias per spec. Backend /rbac/permissions returns can_report_incidents=false for auditor (confirmed), so the nav filter for Incidentes is either missing or not wired to can_report_incidents.", "selector": "aside >> text=Incidentes (auditor)", "priority": "HIGH"},
+      {"component": "Audits.js AuditList row - sgsst_manager role", "issue": "Acta Apertura / Acta Cierre buttons still visible on open (Programada) audit rows for Responsable SST. Per spec they must be hidden until audit.status in ['closed','reviewed'] (or replaced with the 'Descargas disponibles al cerrar' badge). Inconsistent: some rows hide them but at least the first Programada row shows both buttons.", "selector": "[data-testid^=audit-row] button:has-text('Acta Apertura')", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Backend (25/25):",
+    "  TestSgsstManagerWriteForbidden - 4/4 (checklist, findings PUT, findings POST, audit PUT all 403)",
+    "  TestSgsstManagerActionPlans::test_create_update_followup_action_plan - PASS",
+    "  TestPdfRoleGate - 9/9 (mgr 403 open x3, mgr 200 closed x2, admin 200 x2, auditor 200 x2)",
+    "  TestAuditorWrite - 2/2 (PUT audit, generate+update checklist+findings)",
+    "  TestAINarrativeAssist - 3/3 (opening/closing/report narrative via gpt-5.2)",
+    "  TestAINarrativeSaveAndPDF - 3/3 (save 3 narratives persist via GET audit; opening PDF size grows 300+ bytes when narrative injected; closing PDF 200)",
+    "  TestPermissionsFlags - 3/3 (admin, sgsst_manager, auditor flags exact match)",
+    "Frontend Playwright:",
+    "  sgsst_manager login -> dashboard, sidebar shows Dashboard+Implementacion+Documentos+Matriz IPER+Incidentes+Capacitacion+Auditorias+Reportes (correct 8 items)",
+    "  auditor login -> dashboard OK",
+    "  auditor sidebar correctly HIDES Documentos/Matriz IPER/Capacitacion/Reportes/Implementacion"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration24_role_audit_rules.py",
+    "/app/test_reports/pytest/iteration24_results.xml"
+  ],
+  "action_items": [
+    "Hide 'Incidentes' nav item for auditor in /app/frontend/src/components/Layout.js - gate by can_report_incidents like the other can_view_* flags (or explicitly exclude auditor role).",
+    "Fix /app/frontend/src/pages/Audits.js AuditList: for role='sgsst_manager' do NOT render the 'Acta Apertura' and 'Acta Cierre' buttons on rows where audit.status NOT IN ['closed','reviewed']. Replace with a 'Descargas disponibles al cerrar la auditoria' badge (same UX as Consolidado tab).",
+    "Verify Consolidado tab badge ('Descargas disponibles al cerrar la auditoria') renders when a sgsst_manager opens an OPEN audit - could not fully verify because list requires clicking; main agent should self-test after bug #2 fix."
+  ],
+  "critical_code_review_comments": [
+    "server.py L1817-1830 _require_pdf_download_access: clean role + status gate; 403 for mgr on non-closed audits works correctly.",
+    "server.py L1901-1907, L2115+, L3593-3596: narrative injection logic in PDFs is correct and verified by size-growth test using non-repetitive text (flate compression of repetitive strings is a red herring).",
+    "server.py L2400-2413 save_ai_redaction: whitelist correctly includes narrative_opening/closing/report; sets report_stale=false appropriately.",
+    "server.py L3451-3453: can_edit_audit_items, can_edit_action_plans, can_use_ai_narrative flags implemented and match frontend contract.",
+    "server.py L3454-3458: can_view_documents/hazards/training/reports/implementation correctly returns False for auditor. Layout.js needs matching filter for Incidentes nav (gap).",
+    "Layout.js: Incidentes nav item filter is not wired to can_report_incidents for auditor. Needs: if role=='auditor' -> hide Incidentes, or gate by !perms.can_report_incidents.",
+    "Audits.js AuditList row: PDF/Acta button visibility for sgsst_manager not fully wired to audit.status. Needs canEditAuditItems + audit.status check before rendering Acta Apertura/Cierre."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration24_role_audit_rules.py (new, 25 tests, 100% pass)",
+    "/app/test_reports/pytest/iteration24_results.xml (new)",
+    "/app/test_reports/iteration_23.json (new)"
+  ],
+  "success_rate": {"backend": "100% (25/25)", "frontend": "~60% (2 critical UI gating bugs remain)"},
+  "test_credentials": {
+    "admin": "admin@traciumsst.com / TraciumSST2026!",
+    "sgsst_manager": "sgsst_ui@test.com / Mgr2026!",
+    "auditor": "auditor_ui@test.com / Aud2026!"
+  },
+  "seed_data_creation": "Pytest created 2 open audits + 1 closed audit all prefixed TEST_IT24_*; 1 TEST_IT24 action plan + follow-up. These remain in DB (admin can delete). One audit had AI-generated narratives saved to exercise PDF injection.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend role-specific rules are fully correct. Two frontend gating bugs to re-verify after main agent fix: (1) Layout.js must hide 'Incidentes' for auditor (gate by perms.can_report_incidents), (2) Audits.js AuditList must hide 'Acta Apertura'/'Acta Cierre' buttons for sgsst_manager unless audit.status in ['closed','reviewed']. Also after fix, navigate mgr -> Consolidado tab -> select an OPEN audit and confirm the 'Descargas disponibles al cerrar la auditoria' badge appears where PDF buttons used to be. For closed audits, mgr should see PDF buttons. Test users sgsst_ui / auditor_ui are assigned to 'Mi Empresa' (default). Use pytest file /app/backend/tests/test_iteration24_role_audit_rules.py for regression.",
+  "rca_of_the_issue": "Backend layer correctly enforces role/status gating via require_role() and _require_pdf_download_access(). Frontend is missing two filters that should mirror the backend permission contract: Layout.js does not gate Incidentes by can_report_incidents (auditor flag is false, yet nav still rendered - likely the Incidentes entry has no can_view_* predicate attached, unlike Documentos/Matriz IPER/etc), and Audits.js AuditList row still renders the Acta buttons regardless of canEditAuditItems/audit.status combo for sgsst_manager. Both are pure UI filter gaps (backend returns correct flags)."
+}

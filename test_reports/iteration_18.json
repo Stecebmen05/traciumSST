@@ -1,0 +1,63 @@
+{
+  "summary": "Iteration 18: AI Chatbot (TraciumBot) + Dashboard enhancements + Global FAB testing. Backend 6/6 tests passed. Frontend end-to-end flows verified via Playwright. All critical functionality works.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "FAB", "issues": ["The Emergent 'Made with Emergent' badge (bottom-right) visually overlaps the FAB toggle button. Native Playwright click (even force=True) sometimes fails to expand the FAB menu; JS .click() dispatch works. End users clicking with a real pointer will work because the badge is a fixed overlay and the FAB is z-50 on top of it. Documented as UI quirk per review_request."]},
+      {"screen": "Dashboard PHVA breakdown", "issues": ["The phva-breakdown card is conditionally rendered only when dashboard audit_score contains a PHVA breakdown. For the seeded admin org with 0% score and no completed audit, phvaBreakdown is null and the card correctly does not render. Not a bug; verified in code (/app/frontend/src/pages/Dashboard.js L151)."]}
+    ]
+  },
+  "passed_tests": [
+    "Backend (/app/backend/tests/test_iteration18_chatbot.py):",
+    "  TestDashboardUnchanged::test_dashboard_returns_expected_keys - PASSED (kpis, recent_incidents, recent_findings, audit_score all present)",
+    "  TestAIChatValidation::test_empty_message_rejected - PASSED (400)",
+    "  TestAIChatValidation::test_whitespace_only_rejected - PASSED (400)",
+    "  TestAIChatValidation::test_too_long_message_rejected - PASSED (>4000 chars -> 400)",
+    "  TestAIChatFlow::test_full_chat_flow - PASSED (send -> history -> multi-turn context preserved (reply referenced SG-SST/60/0312) -> delete -> empty history; no _id leakage)",
+    "  TestAIChatRBAC::test_unauthenticated_chat_rejected - PASSED (401/403)",
+    "",
+    "Frontend (Playwright):",
+    "  Login with admin@traciumsst.com / TraciumSST2026! - PASSED",
+    "  /dashboard loads with [data-testid=compliance-semaphore] rendered in RED for 0% (Critico) - PASSED",
+    "  [data-testid=kpi-grid] renders 8 KPI cards including 'PLANES VENCIDOS' - PASSED",
+    "  Recharts donut (Cumplimiento Legal) + bar chart (Resumen por Modulo) render - PASSED",
+    "  [data-testid=fab-toggle-btn] expands [data-testid=fab-menu] with 5 actions - PASSED",
+    "  FAB navigations: audit->/audits, incident->/incidents, document->/documents, plan->/audits, alerts->/alerts - ALL PASSED",
+    "  [data-testid=chatbot-toggle-btn] opens [data-testid=chatbot-panel] with 4 suggestions - PASSED",
+    "  Clicking suggestion triggers real GPT-5.2 backend call, assistant response rendered - PASSED",
+    "  Typing in [data-testid=chatbot-input] + [data-testid=chatbot-send-btn] sends and responds - PASSED",
+    "  History persists after close/reopen panel (localStorage tracium_chat_session) - PASSED (2 assistant + 2 user msgs retained)",
+    "  [data-testid=chatbot-clear-btn] clears history (assistant msgs go to 0) - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration18_chatbot.py",
+    "/app/test_reports/pytest/iteration18_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py: /api/ai/chat correctly rebuilds context from DB history into the LlmChat session_id. Good pattern. Consider also capping response storage size and trimming stored assistant content to avoid DB growth for long chats.",
+    "FloatingActions.jsx: QUICK_ACTIONS 'plan' action navigates to /audits (same as 'audit'). Intentional per code but potentially confusing UX - consider /plans or a query param like /audits?view=plans.",
+    "Dashboard.js: PHVA breakdown is conditionally rendered; ensure backend audit_score consistently returns by_cycle object once an audit is completed so this card becomes visible."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration18_chatbot.py (new pytest file)"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6 tests passed)",
+    "frontend": "100% (all critical flows verified)"
+  },
+  "test_credentials": {
+    "admin_email": "admin@traciumsst.com",
+    "admin_password": "TraciumSST2026!",
+    "login_endpoint": "/api/auth/login-email (sets httpOnly session_token cookie)"
+  },
+  "seed_data_creation": "Test chat sessions are created via /api/ai/chat and fully cleaned up via DELETE /api/ai/chat/history at end of test_full_chat_flow.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 18 verified chatbot (GPT-5.2 via emergentintegrations) + dashboard semaphore + global FAB. Auth uses /api/auth/login-email (not /api/auth/login). Emergent badge overlaps FAB visually; use page.evaluate(\"el.click()\") in Playwright if force=True fails. Chatbot uses localStorage key 'tracium_chat_session' for session persistence. Multi-turn context verified (asked about SG-SST then 'cuantos estandares son?' - bot correctly cited 60 estandares / Res 0312)."
+}

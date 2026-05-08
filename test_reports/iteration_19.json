@@ -1,0 +1,89 @@
+{
+  "summary": "Iteration 19: Tested document approval workflow, audit closure approval, /api/approvals/pending, and chatbot context toggle. Backend: 14/15 tests passed (1 failed revealing a CRITICAL schema bug: GET /api/documents strips approval_* fields via DocumentOut response_model). Frontend: chatbot context toggle works (Normativa<->En vivo). Document approval UI is BROKEN end-to-end because of the backend schema issue: after clicking 'Enviar', the toast appears but the badge remains 'Borrador' and approve/reject buttons never appear (since approval_status is missing from the list response).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/documents (DocumentOut Pydantic model, server.py L217-227)",
+        "issue": "DocumentOut response_model does NOT include approval_status, approval_history, submitted_by, submitted_at, approved_by, approved_at, rejection_reason, rejected_by, rejected_at. Because model_config has extra='ignore', all these fields are silently stripped from GET /api/documents responses. This makes the entire document approval UI non-functional: badge always shows 'Borrador', approve/reject buttons never render, history dialog never opens. Individual POST /submit-approval, /approve, /reject endpoints correctly return the fields (they use find_one without response_model), but the list used by the UI does not. RCA confirmed via direct curl (keys returned: category, created_at, created_by, description, doc_id, status, title, updated_at, version) and via Playwright (after submit, badge stays 'Borrador').",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Documents page (/app/frontend/src/pages/Documents.js)",
+        "issue": "After POST /api/documents/{id}/submit-approval succeeds and toast 'Enviado a aprobacion' is shown, the table row still shows badge 'Borrador' and the 'Enviar' button. Root cause is the backend schema issue above, not the frontend code. Frontend code correctly reads doc.approval_status but the field is missing from the list response.",
+        "selector": "[data-testid^='doc-approval-']",
+        "priority": "CRITICAL (caused by backend schema)"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Document approval end-to-end (submit -> approve/reject -> history)",
+        "issue": "Entire flow is broken in UI due to DocumentOut schema stripping approval fields. Direct API tests confirm backend business logic works (submit, approve, reject, segregation of duties all pass) but UI cannot display nor transition state.",
+        "affected_selectors": ["[data-testid^='doc-approval-']", "[data-testid^='doc-approve-']", "[data-testid^='doc-reject-']", "[data-testid^='doc-history-']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Backend (14/15):",
+    "  TestDocumentApproval::test_submit_approval_sets_pending - PASSED",
+    "  TestDocumentApproval::test_submit_twice_returns_400 - PASSED",
+    "  TestDocumentApproval::test_admin_can_approve_own_submission - FAILED (list GET missing approval_status)",
+    "  TestDocumentApproval::test_approve_non_pending_rejected - PASSED",
+    "  TestDocumentApproval::test_reject_requires_reason - PASSED (empty and whitespace-only rejected with 400)",
+    "  TestDocumentApproval::test_reject_with_reason_sets_rejected - PASSED",
+    "  TestDocumentApproval::test_segregation_of_duties_for_sgsst_manager - PASSED (sgsst_manager gets 403 on own doc; admin override succeeds)",
+    "  TestAuditClosureApproval::test_submit_closure_sets_pending - PASSED (pending_closure_data persisted)",
+    "  TestAuditClosureApproval::test_submit_closure_validates_required_fields - PASSED (400 on missing auditor/copasst/end_date/end_time)",
+    "  TestAuditClosureApproval::test_admin_approve_closure - PASSED (status=closed, end_date applied)",
+    "  TestAuditClosureApproval::test_reject_closure_requires_reason - PASSED (empty reason -> 400)",
+    "  TestPendingApprovals::test_pending_returns_structure - PASSED (documents, audits, total keys present; company-scoped)",
+    "  TestChatbotContext::test_chat_without_context_has_flag_false - PASSED (context_used=false)",
+    "  TestChatbotContext::test_chat_with_context_sets_flag_true_and_grounded - PASSED (context_used=true; AI responds to live company query)",
+    "  TestChatbotContext::test_chat_rejects_empty - PASSED",
+    "",
+    "Frontend (Playwright):",
+    "  Login via admin@traciumsst.com / TraciumSST2026! - PASSED",
+    "  /documents page loads with [data-testid=documents-page] - PASSED",
+    "  Document creation via [data-testid=add-document-btn] -> doc row visible - PASSED",
+    "  Submit approval: toast 'Enviado a aprobacion' shown - PASSED, but UI state not updated (see critical bug above)",
+    "  Chatbot [data-testid=chatbot-toggle-btn] opens panel - PASSED",
+    "  [data-testid=chatbot-context-toggle] toggles 'Normativa' -> 'En vivo' with green badge - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration19_approvals.py",
+    "/app/test_reports/pytest/iteration19_results.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Update DocumentOut in /app/backend/server.py (L217-227) to include approval fields, OR remove response_model=List[DocumentOut] from GET /api/documents (L793) so the raw dict from DB (already using projection {_id:0}) is returned. Recommended: add these Optional fields to DocumentOut: approval_status (Optional[str] = None), approval_history (Optional[List[Dict]] = None), submitted_by (Optional[str] = None), submitted_at (Optional[str] = None), approved_by (Optional[str] = None), approved_at (Optional[str] = None), rejection_reason (Optional[str] = None), rejected_by (Optional[str] = None), rejected_at (Optional[str] = None). Also check GET /api/documents/{id} if it uses the same model.",
+    "After fix, re-run /app/backend/tests/test_iteration19_approvals.py (expect 15/15) and re-verify Documents page UI end-to-end (submit -> badge shows Pendiente Aprobacion, approve -> Aprobado, history dialog lists actions)."
+  ],
+  "critical_code_review_comments": [
+    "server.py L217-227: DocumentOut with extra='ignore' silently strips fields. This is a broader anti-pattern for schemas that evolve - consider dropping response_model on GET endpoints that already project {_id:0}, or explicitly model all fields.",
+    "server.py L1292-1294: is_owner_or_admin helper is defined AFTER list_pending_approvals (L1269). Python resolves at call time so it works, but re-order helper above its usage for clarity.",
+    "server.py L861: Inline body parsing `if request.headers.get('content-length') and int(request.headers['content-length']) > 0 else {}` is fragile (TransferEncoding: chunked has no content-length). Prefer `try: body = await request.json() except Exception: body = {}` as done in approve_audit_closure (L1222-1224).",
+    "Documents.js: The `approval_history` dialog only opens when doc.approval_history?.length > 0 - OK, but due to backend schema bug the history button never renders even when history exists."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration19_approvals.py (new)",
+    "/app/test_reports/iteration_19.json (new)"
+  ],
+  "success_rate": {
+    "backend": "93% (14/15) - failure is due to production schema bug, not test flakiness",
+    "frontend": "60% - chatbot toggle works, document approval UI broken end-to-end by backend"
+  },
+  "test_credentials": {
+    "admin_email": "admin@traciumsst.com",
+    "admin_password": "TraciumSST2026!",
+    "login_endpoint": "/api/auth/login-email"
+  },
+  "seed_data_creation": "Each test creates TEST_-prefixed documents and audits via API and cleans them up in fixture teardown. Segregation-of-duties test creates a temporary sgsst_manager user (TEST_mgr_*@test.com) and best-effort deletes it.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The critical bug is in DocumentOut Pydantic schema (server.py L217-227) stripping approval_status fields. Same pattern may exist for audit closure if AuditOut is used - verify. Audit endpoints currently return raw find_one (no response_model) so audit closure flow should render correctly end-to-end. After main agent fixes DocumentOut, re-run test_iteration19_approvals.py and additionally Playwright-verify the Documents page: create doc -> Enviar -> badge 'Pendiente Aprobacion' -> Aprobar -> badge 'Aprobado' -> history dialog. Also verify /audits ConsolidationView pending-closure banner (not tested this iteration as pre-requisites like completed checklist were not seeded).",
+  "rca_of_the_issue": "Root cause: GET /api/documents has response_model=List[DocumentOut] (server.py L793). DocumentOut (L217-227) with model_config ConfigDict(extra='ignore') drops any field not explicitly declared. The new approval workflow adds approval_status, approval_history, submitted_by/at, approved_by/at, rejection_reason, rejected_by/at to MongoDB documents but these fields are NOT in DocumentOut, so Pydantic silently strips them on serialization. Reproduction: 1) login as admin, 2) POST /api/documents to create doc, 3) POST /api/documents/{id}/submit-approval (DB now has approval_status='pending'), 4) GET /api/documents -> doc in list has NO approval_status field. Mitigation: add the approval fields as Optional to DocumentOut OR remove the response_model from the GET list endpoint (simplest since DB projection already excludes _id)."
+}

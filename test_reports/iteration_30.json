@@ -1,0 +1,57 @@
+{
+  "summary": "Sprint 30 (ARL Indicators dashboard + AI Document Generator with 32 MinTrabajo templates) tested end-to-end. Backend: 11/11 pytest tests passed. Frontend: Indicadores ARL page loads with hero + 3 sections + selectors + PDF/Excel buttons; AI Document dialog opens with 32 templates and generates a real Markdown document (10K chars, Spanish, company auto-injected) within ~30s, persists as draft, edit toggle works.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Indicadores ARL hero", "issues": ["When cumplimiento=0% the hero is solid red which is correct semantically, but 'NIT N/A' is shown because the default 'Mi Empresa' lacks NIT in DB. Consider either (a) seeding a NIT for the default company or (b) hiding the NIT chip when missing. Cosmetic only."]},
+      {"screen": "AI generated doc preview", "issues": ["GPT-5.2 renders missing fields as **[POR DEFINIR]** because the active company has NIT/Ciudad/economic_activity empty. Auto-injection itself is working (Razon social 'Mi Empresa' and the customization 'Bogota' are correctly used). To make demos look complete, populate /api/companies seed with NIT, ciudad, actividad_economica."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration30_arl_ai_docs.py",
+    "/app/test_reports/pytest/iteration30_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Seed default 'Mi Empresa' with NIT, ciudad, economic_activity, sedes so AI-generated documents and ARL hero render fully populated in demos.",
+    "(Optional) Add timezone-aware end-of-month calculation in get_arl_indicators (current logic uses '{year}-{month+1:02d}-01' which works for $lte string compare on YYYY-MM-DD but treats day=1 of next month as inclusive, slightly over-counting boundary records). Low impact in practice."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 4480 lines (was 4133) - splitting into modules (indicators/, documents_ai/, etc.) is increasingly important.",
+    "export_arl_indicators_excel and export_arl_indicators_pdf call get_arl_indicators(year, month, user) directly bypassing FastAPI dependency resolution - works because user is already resolved by their own Depends, but it's tightly coupled. Consider extracting a pure function _compute_arl(cid, year, month) and have all 3 endpoints call it.",
+    "generate_document_with_ai has no max length / token guard on customizations field - a very long customizations payload could blow up the system prompt. Suggest clamping to ~2KB.",
+    "The company_block in generate_document_with_ai uses get('city') but the document_templates prompt asks for ciudad. The company schema field is 'city' here - confirm schema (some places use 'ciudad'). If mixed, the AI sees N/A for ciudad. Verify Company model field name.",
+    "PUT /api/documents/{id}/ai-content does not enforce that the document belongs to the caller's company_id - admin/sgsst could overwrite ai_generated_content of a doc in another company if they know the id. Add company_id check (same applies to GET /ai-content)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration30_arl_ai_docs.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11)",
+    "frontend": "100% (ARL page renders + AI dialog generates 10K-char Markdown doc and persists)"
+  },
+  "test_credentials": "admin@traciumsst.com / TraciumSST2026!  |  sgsst_ui@test.com / Mgr2026!  |  auditor_ui@test.com / Aud2026!. Login uses POST /api/auth/login-email with httpOnly session_token cookie (also accepted as Bearer).",
+  "seed_data_creation": "AI generation test creates one draft Document per run and deletes it at teardown. No persistent residue.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Sprint 30 fully verified. Templates endpoint returns 32 items + 6 categories (Politica/Manual/Procedimiento/Plan/Reglamento/Formato). pol_sgsst is the 'happy path' template id. AI generation takes 25-40s on gpt-5.2. data-testids: indicators-arl-page, arl-compliance-hero, arl-section-{resultado,estructura,proceso}, arl-{metric_key}, arl-year-select, arl-month-select, arl-export-pdf, arl-export-excel, arl-refresh-btn, ai-doc-trigger, ai-doc-generator, ai-doc-template-{id}, ai-doc-customizations, ai-doc-generate-btn, ai-doc-preview, ai-doc-edit-btn, ai-doc-save-edit, ai-doc-close-preview. Login form uses placeholder='usuario@empresa.com' for email input.",
+  "verified_flows": [
+    "GET /api/indicators/arl?year=2026&month=0 returns full payload with all expected keys (frecuencia_at, severidad_at, mortalidad_at, prevalencia_el, incidencia_el, ausentismo_porcentaje, accidentes_total, etc.)",
+    "GET /api/indicators/arl?year=2026&month=3 returns month-specific aggregate with label '2026-03'",
+    "GET /api/indicators/arl/pdf -> 200, application/pdf, %PDF magic, ~3.5KB",
+    "GET /api/indicators/arl/excel -> 200, xlsx (PK ZIP magic), ~5KB",
+    "GET /api/documents/templates -> 32 items, 6 categories, no system_prompt leaked",
+    "GET /api/documents/templates?category=Politica -> exactly 6 templates",
+    "POST /api/documents/generate-ai (admin, pol_sgsst, save=true, customization='Bogota') -> 200 with {document, content}, content >=500 chars Spanish Markdown, document persisted with template_id and ai_generated_content",
+    "POST /api/documents/generate-ai (auditor) -> 403",
+    "POST /api/documents/generate-ai (invalid template_id) -> 404",
+    "GET /api/documents/{id}/ai-content -> returns saved Markdown",
+    "PUT /api/documents/{id}/ai-content (admin) -> updates content; (auditor) -> 403",
+    "Frontend: admin login -> sidebar shows 'Indicadores ARL' nav -> /indicators-arl renders with hero + 3 sections + year/month selects + PDF/Excel buttons (data values match backend: 14 planes, 3 cerrados, 21.43% planes_cerrados, 1 hallazgo, 25 trabajadores, horas-hombre 52800)",
+    "Frontend: /documents -> 'Crear con IA' opens dialog with 32 template cards, click pol_sgsst, fill customization 'Mencionar la sede de Bogota', click 'Generar Documento con IA' -> 30s later preview shows 10031 chars of valid Spanish Markdown including 'Mi Empresa' company name and 'Bogota D.C.' references; document persisted (toast 'Documento generado y guardado como borrador'); Edit toggle reveals save-edit button"
+  ]
+}

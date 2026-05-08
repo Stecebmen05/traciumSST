@@ -1,0 +1,38 @@
+{
+  "summary": "Re-test of iteration 23 frontend gating bugs. Both bugs fixed and verified via Playwright DOM queries against the production preview URL. (1) Auditor (auditor_ui@test.com) sidebar now renders EXACTLY ['Dashboard','Auditorias'] - all six forbidden modules (Incidentes, Documentos, Matriz IPER, Capacitacion, Reportes, Implementacion) correctly hidden. Layout.js L72 now gates Incidentes by canReportIncidents = permissions?.can_report_incidents, which the backend returns false for auditor. (2) sgsst_manager (sgsst_ui@test.com) on /audits page: of 4 audit rows, only 1 row shows Acta Apertura + Acta Cierre buttons (the closed audit TEST_IT24_closed_670ea1); the remaining three (including TEST_IT24_open_f3344d previously buggy) correctly suppress the buttons. Audits.js L280 now gates buttons with canDownloadReports && (isPrivRole || ['closed','reviewed'].includes(a.status)) and isPrivRole = ['admin','owner','auditor'].includes(user?.role) correctly excludes sgsst_manager. (3) Auditor Consolidado tab of first audit renders the AI Narrative Editor (data-testid=ai-narrative-editor) with all three subsections narrative-narrative_opening / narrative-narrative_closing / narrative-narrative_report, each with its Generar con IA and Guardar buttons (3 ai-generate-* and 3 ai-save-* data-testids present). Regressions: admin nav shows all 12 items (8 modules + Consolidado/Empresas/Usuarios/Alertas Email); collaborator nav shows only Dashboard + Incidentes. All four user flows pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "Auditor sidebar gating: nav = ['Dashboard','Auditorias'] exactly",
+    "Auditor Consolidado: ai-narrative-editor with 3 subsections + 3 ai-generate-* + 3 ai-save-* buttons",
+    "sgsst_manager /audits: 3 of 4 rows correctly hide Acta buttons (only 1 Cerrada row shows them)",
+    "sgsst_manager sidebar: 8 expected modules all present",
+    "Admin regression: 12 nav items (8 modules + Consolidado/Empresas/Usuarios/Alertas Email)",
+    "Collaborator regression: nav = ['Dashboard','Incidentes'] exactly, no forbidden modules"
+  ],
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Layout.js L53,L72: canReportIncidents correctly derived from permissions.can_report_incidents and applied as show-filter for Incidentes nav item. Pattern consistent with other can_view_* flags.",
+    "Audits.js L258-280: AuditList destructures canDownloadReports+user, derives isPrivRole for admin/owner/auditor, then gates Acta buttons with canDownloadReports && (isPrivRole || status in closed/reviewed). Correct role + status combo - sgsst_manager sees buttons only on closed/reviewed audits.",
+    "Audits.js L917-920: Same pattern applied in AuditDetail (showPdfDownloads). Consistent with list view.",
+    "AINarrativeEditor.jsx correctly exposes data-testids ai-narrative-editor, narrative-<type>, ai-generate-<type>, ai-save-<type> - all verified present in DOM for auditor."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "100% (5/5 flows pass)"},
+  "test_credentials": {
+    "admin": "admin@traciumsst.com / TraciumSST2026!",
+    "sgsst_manager": "sgsst_ui@test.com / Mgr2026!",
+    "auditor": "auditor_ui@test.com / Aud2026!",
+    "collaborator": "demo_colab@test.com / Demo2026!"
+  },
+  "seed_data_creation": "No new seed data created; used pre-existing TEST_IT24_* audits from iteration 23 (2 open + 2 closed, 1 of them actually in closed state showing Acta buttons).",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 23 frontend gating bugs fully resolved. Layout.js gates Incidentes by can_report_incidents; Audits.js AuditList gates Acta buttons by role+status. AINarrativeEditor renders correctly in Consolidado tab. Backend was already 25/25 in iteration 23. Next work can proceed with new features on top of a clean frontend RBAC state.",
+  "rca_of_the_issue": "Both bugs from iteration 23 were pure UI filter gaps. Fix 1: added canReportIncidents = permissions?.can_report_incidents in Layout.js and set show: canReportIncidents on Incidentes nav entry. Fix 2: in Audits.js AuditList, the Acta buttons were unconditionally rendered for any user with canDownloadReports; adding && (isPrivRole || closed/reviewed status) on the wrapping fragment correctly hides them for sgsst_manager on open audits while preserving access for admin/owner/auditor and for closed/reviewed audits for sgsst_manager. Verified end-to-end via Playwright DOM queries against production preview URL."
+}

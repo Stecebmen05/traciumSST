@@ -1,0 +1,64 @@
+{
+  "summary": "Iteration 22 - Collaborator RBAC isolation verified end-to-end. Backend pytest 15/15 PASS covering: (1) collaborator GET /api/companies returns exactly 1 assigned company with NO 'default' leak, (2) GET /api/companies/active returns the assigned company for collab (200), (3) all 3 audit PDF endpoints return 403 for collab (role check fires first) while admin passes role gate, (4) POST /api/incidents succeeds for collab (200), (5) GET /api/rbac/permissions returns can_view_audits/documents/hazards/training/reports/implementation/download_reports = False and can_report_incidents = True, (6) PUT /api/users/{id}/company strictly REPLACES company_ids for non-admin users, (7) POST /api/auth/create-user with role=collaborator and no company_id returns 400, and with company_id stores exactly [company_id], (8) POST /api/users/create-demo happy path stores strict company_ids=[cid]. Startup migration ran: backend log shows 'Migration: removed default company_id leak from 10 users'. Frontend Playwright verified: (a) collab login -> /dashboard, (b) sidebar shows ONLY 'Dashboard' and 'Incidentes' (all 10 forbidden modules: Implementacion, Documentos, Matriz IPER, Capacitacion, Auditorias, Reportes, Empresas, Usuarios, Alertas, Consolidado are hidden), (c) top company dropdown shows 'Empresa Colab Demo' (no 'Mi Empresa' anywhere in DOM), (d) navigating to /audits renders 'Auditorias SG-SST' page without crash and NO 'Acta Apertura' / 'Acta Cierre' / 'Informe PDF' / 'Descargar' labels on page, (e) /incidents page shows 'Reportar Incidente' button that opens a dialog with Tipo/Severidad/Fecha/Ubicacion/Descripcion/Acciones fields, (f) 2 collab-created incidents (TEST_RBAC Colaborador reportando incidente) appear in the list proving backend POST /api/incidents works through the UI/API layer. Admin regression: admin login still sees all companies via GET /api/companies and admin permissions flags are True for write/audit/all_companies/download_reports.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Collaborator Dashboard", "issues": ["Recharts 'width(-1) height(-1)' console warnings (cosmetic, charts still render). Not a RBAC issue."]},
+      {"screen": "Nuevo Incidente dialog", "issues": ["DialogContent missing aria-describedby accessibility warning (cosmetic)."]}
+    ]
+  },
+  "passed_tests": [
+    "Backend (15/15):",
+    "  TestCompaniesIsolation::test_collaborator_sees_only_assigned_company - PASSED",
+    "  TestCompaniesIsolation::test_admin_sees_all_companies - PASSED",
+    "  TestCompaniesIsolation::test_collaborator_active_company - PASSED",
+    "  TestPDFPermissions::test_collaborator_forbidden[3 PDF endpoints] - PASSED",
+    "  TestPDFPermissions::test_admin_role_passes[3 PDF endpoints] - PASSED",
+    "  TestIncidents::test_collaborator_can_create_incident - PASSED",
+    "  TestRBACPermissions::test_collaborator_permissions (all 12 flags correct) - PASSED",
+    "  TestRBACPermissions::test_admin_permissions - PASSED",
+    "  TestAssignCompany::test_replace_for_collaborator_target (strict replace, not addToSet) - PASSED",
+    "  TestAssignCompany::test_create_user_collab_requires_company (400) - PASSED",
+    "  TestCreateDemo::test_demo_non_admin_requires_company (strict isolation) - PASSED",
+    "",
+    "Frontend Playwright:",
+    "  demo_colab@test.com login -> /dashboard - PASSED",
+    "  Sidebar filtered to Dashboard + Incidentes only - PASSED",
+    "  Company dropdown shows 'Empresa Colab Demo' (no 'Mi Empresa') - PASSED",
+    "  /audits renders without PDF download labels - PASSED",
+    "  /incidents 'Reportar Incidente' dialog opens with all fields - PASSED",
+    "  Incidents list shows 2 prior TEST_RBAC incidents (API integration OK) - PASSED"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_iteration22_rbac_collaborator.py",
+    "/app/test_reports/pytest/iteration22_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py L3072-3084 list_companies: correctly strips 'default' for non-admin/non-owner and returns [] if no assignment. Solid strict-isolation.",
+    "server.py L3192-3215 get_active_company: raises 403 for non-admin with no company AND no longer auto-creates 'default' for them. Good.",
+    "server.py L653-675 assign_user_company: uses $set company_ids=[cid] for non-admin (replace), $addToSet for admin - correct asymmetry.",
+    "server.py L556-564 create_user_with_password: enforces company_id for non-admin with 400 and sets exactly [company_id]. Good.",
+    "server.py L3828-3841 startup migration: idempotent $pull of 'default' from non-admin company_ids. Log confirms it ran and affected 10 users once.",
+    "server.py L3392-3413 get_permissions: includes new can_view_* flags matching frontend Layout.js baseNav filter. Consistent contract.",
+    "server.py L1783 / L1979 / L3419 PDF endpoints: all three use require_role('admin','sgsst_manager','auditor') so role gate fires before any DB lookup - returns 403 before 404 for collab. Good.",
+    "Minor: recharts width/height warnings on dashboard for collab (container sizing during initial render) - cosmetic, not RBAC related."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration22_rbac_collaborator.py (new)",
+    "/app/test_reports/iteration_22.json (new)",
+    "/app/test_reports/pytest/iteration22_results.xml (new)"
+  ],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% (6/6 critical flows)"},
+  "test_credentials": {
+    "admin": "admin@traciumsst.com / TraciumSST2026!",
+    "collaborator": "demo_colab@test.com / Demo2026! (company: Empresa Colab Demo / comp_902369f8)"
+  },
+  "seed_data_creation": "Pytest created 2 temp companies (TEST_RBAC_A/B) + 1 test collab user + 1 demo user, then DELETEd the companies. The test collab user and 2 'TEST_RBAC Colaborador reportando incidente' records remain (low impact, admin can clean). demo_colab@test.com preserved as instructed.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "RBAC collaborator isolation is fully working as of iteration 22. All 3 reported bugs fixed: (1) collab sees only assigned company, (2) collab cannot download PDFs (403), (3) collab sidebar restricted to Dashboard + Incidentes. Sidebar filter is driven by permission flags exposed via AuthContext from /api/rbac/permissions; Layout.js baseNav filters by can_view_* flags. If adding new nav items, add a matching can_view_<feature> flag on backend permissions endpoint and filter in Layout.js.",
+  "rca_of_the_issue": "Root cause of original bugs was get_active_company auto-creating a 'default' company for any user without company_id (including collaborators), and list_companies merging company_ids verbatim which let the 'default' leak show alongside the real assigned company. Fix: list_companies now strips 'default' for non-admin/non-owner; get_active_company only auto-creates 'default' for admin/owner and returns 403 otherwise; assign_user_company uses $set replace for non-admin; startup migration scrubs pre-existing 'default' leaks. PDF endpoints already used require_role so 403 is correctly returned before DB lookup."
+}

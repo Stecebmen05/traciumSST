@@ -1,0 +1,40 @@
+{
+  "summary": "Sprint 28 - Mini-Gantt visual in ActionPlansView: all acceptance criteria PASSED. Logged in as admin, navigated to /audits, opened TEST_IT24_open_f3344d, switched to 'Plan de Accion' tab. Gantt renders with correct title, counter badges (5 en linea, 5 activos green, 1 vencidos red), legend (Correctiva/Preventiva/Mejora/Vencido/Hoy), month axis markers, today vertical line, and 5 colored rows with correct hex colors (corrective #D90429, preventive #F97316, improvement #2A9D8F). Empty-state verified on audit with 0 plans (TEST_IT24_open_88b772): Gantt is NOT rendered (returns null). Regression verified: 'Nuevo Plan' button and existing action plan list continue to render below Gantt correctly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Gantt month axis", "issues": ["First two month labels at the left edge ('ENE DE 26' and 'FEB DE 26') visually overlap because the 3-day left padding puts the first month label slightly off-viewport and behind the second. Minor cosmetic, not blocking. Consider clamping or hiding the first label if its left position is < ~3%, or increasing left padding from 3 days to ~15 days."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional polish: fix month axis label overlap at the left edge of the Gantt timeline (minor cosmetic)."
+  ],
+  "critical_code_review_comments": [
+    "ActionPlansGantt.jsx: uses p.plan_id as React key — good. No MongoDB _id exposure in UI. Component is small (~160 lines), DRY, and returns null gracefully when no plans have valid dates.",
+    "Minor: consider using date-fns for parseISO to avoid TZ issues; current parseISO appends T00:00:00 which is fine for YYYY-MM-DD but may drift in other TZ formats.",
+    "Minor: inline-style left:'min(...)' on hover tooltip uses CSS min() — works in modern browsers; OK."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped per request)", "frontend": "100%"},
+  "test_credentials": "admin@traciumsst.com / TraciumSST2026!",
+  "seed_data_creation": "None. Used existing seeded audits TEST_IT24_open_f3344d (5 plans incl. 1 overdue) and TEST_IT24_open_88b772 (0 plans).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Sprint 28 Gantt feature is fully functional. To extend tests, use [data-testid=action-plans-gantt], [data-testid^=gantt-row-], [data-testid=gantt-overdue-badge], [data-testid=gantt-today-line]. Observed 5 plans in TEST_IT24_open_f3344d (more than the 3 mentioned in the spec — extra plans were added by prior iterations, all rendered correctly).",
+  "verified_acceptance_criteria": {
+    "gantt_card_renders": true,
+    "title_correct": true,
+    "total_counter_badge": "5 en linea",
+    "active_badge_green": "5 activos",
+    "overdue_badge_red": "1 vencidos",
+    "today_line_present": true,
+    "row_colors_verified": {"corrective": "rgb(217, 4, 41)", "preventive": "rgb(249, 115, 22)", "improvement": "rgb(42, 157, 143)"},
+    "legend_present": true,
+    "empty_state_returns_null": true,
+    "regression_existing_plan_list_intact": true,
+    "regression_nuevo_plan_button_present": true
+  }
+}

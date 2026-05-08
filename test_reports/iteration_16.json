@@ -1,0 +1,122 @@
+{
+  "summary": "Iteration 16: Tested CASCADE functionality for checklist execution changes. Found and fixed 3 bugs: (1) Action plans not created when existing finding updated, (2) generate-from-checklist not creating plans for existing findings, (3) findings_count including resolved findings. All 13 tests now pass.",
+
+  "backend_issues": {
+    "critical": [],
+    "minor": [],
+    "bugs_fixed": [
+      {
+        "issue": "Action plans not auto-created when existing finding is updated (only when new finding created)",
+        "location": "/app/backend/server.py lines 1081-1092",
+        "fix": "Added check for existing action plan and create if missing when updating existing finding"
+      },
+      {
+        "issue": "generate-from-checklist not creating action plans for existing findings without plans",
+        "location": "/app/backend/server.py lines 1194-1209",
+        "fix": "Added check for existing action plan and create if missing during sync"
+      },
+      {
+        "issue": "findings_count in GET /api/audits/{audit_id} included resolved findings",
+        "location": "/app/backend/server.py line 903",
+        "fix": "Changed to only count active findings (status != resolved_by_compliance)"
+      }
+    ]
+  },
+
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+
+  "passed_tests": [
+    "Backend Tests (13/13 passed):",
+    "  TestCascadeChecklistToFinding::test_get_audit_checklist_exists - PASSED",
+    "  TestCascadeChecklistToFinding::test_update_checklist_to_no_cumple_creates_finding_and_plan - PASSED",
+    "  TestCascadeChecklistToFinding::test_update_checklist_to_cumple_resolves_finding_and_closes_plan - PASSED",
+    "  TestCascadeChecklistToParcial::test_update_checklist_to_parcial_creates_observation_and_preventive_plan - PASSED",
+    "  TestGenerateFromChecklist::test_generate_from_checklist_returns_correct_structure - PASSED",
+    "  TestGenerateFromChecklist::test_generate_from_checklist_creates_findings_for_nc_items - PASSED",
+    "  TestGenerateFromChecklist::test_generate_from_checklist_resolves_findings_for_compliant_items - PASSED",
+    "  TestCascadeUpdatesAudit::test_audit_has_score_result_after_checklist_change - PASSED",
+    "  TestCascadeUpdatesAudit::test_audit_has_findings_count_updated - PASSED",
+    "  TestCascadeUpdatesAudit::test_audit_has_report_stale_flag - PASSED",
+    "  TestPDFReportGeneration::test_pdf_report_generates_successfully - PASSED",
+    "  TestActionPlanSourceItemId::test_action_plans_have_source_item_id - PASSED",
+    "  TestCleanup::test_cleanup_test_observations - PASSED"
+  ],
+
+  "test_report_links": [
+    "/app/backend/tests/test_iteration16_cascade.py",
+    "/app/test_reports/pytest/iteration16_results.xml"
+  ],
+
+  "action_items": [],
+
+  "critical_code_review_comments": [
+    "Pre-existing lint warnings in server.py (unused variables, multiple statements on one line) - not related to cascade functionality"
+  ],
+
+  "updated_files": [
+    "/app/backend/server.py - Fixed 3 bugs in cascade logic",
+    "/app/backend/tests/test_iteration16_cascade.py - Created comprehensive cascade tests"
+  ],
+
+  "success_rate": {
+    "backend": "100% (13/13 tests passed)",
+    "frontend": "N/A (backend only testing requested)"
+  },
+
+  "test_credentials": {
+    "session_token": "test_session_admin_123",
+    "test_audit_id": "aud_d44a6cb2"
+  },
+
+  "seed_data_creation": "Used existing test audit aud_d44a6cb2. Tests create/update checklist items and findings during execution.",
+
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+
+  "context_for_next_testing_agent": "Iteration 16 verified and fixed the CASCADE functionality. When checklist item changes: (1) no_cumple creates NC finding + corrective action plan, (2) parcial creates observation finding + preventive action plan, (3) cumple/no_aplica resolves finding + closes action plan with closure_note. The generate-from-checklist endpoint now creates missing action plans for existing findings. findings_count now correctly excludes resolved findings.",
+
+  "features_verified": {
+    "PUT /api/audits/{audit_id}/checklist/{item_id} with result=no_cumple": {
+      "auto_creates_finding": true,
+      "auto_creates_action_plan": true,
+      "finding_type": "no_conformity",
+      "action_type": "corrective"
+    },
+    "PUT /api/audits/{audit_id}/checklist/{item_id} with result=parcial": {
+      "auto_creates_finding": true,
+      "auto_creates_action_plan": true,
+      "finding_type": "observation",
+      "action_type": "preventive"
+    },
+    "PUT /api/audits/{audit_id}/checklist/{item_id} changing to cumple": {
+      "auto_resolves_finding": true,
+      "auto_closes_action_plan": true,
+      "closure_note_added": true
+    },
+    "POST /api/audits/{audit_id}/findings/generate-from-checklist": {
+      "returns_created_updated_resolved_plans_created": true,
+      "creates_findings_for_nc_items": true,
+      "creates_action_plans_for_findings_without_plans": true,
+      "resolves_findings_for_compliant_items": true
+    },
+    "Cascade updates on audit document": {
+      "score_result_updated": true,
+      "findings_count_updated": true,
+      "report_stale_flag_set": true
+    },
+    "GET /api/audits/{audit_id}/report/pdf": {
+      "generates_valid_pdf": true
+    }
+  },
+
+  "implementation_details": {
+    "cascade_flow": "Checklist change -> Finding sync -> Action plan sync -> Score recalc -> findings_count update -> report_stale=true",
+    "action_plan_source_item_id": "Action plans have source_item_id field linking to checklist items",
+    "closure_note_format": "Cerrado automaticamente: item cambio a {result}",
+    "findings_count_logic": "Only counts findings where status != resolved_by_compliance"
+  }
+}
