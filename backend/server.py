@@ -2431,7 +2431,6 @@ async def generate_opening_minutes_pdf(audit_id: str, user=Depends(get_current_u
     cid = audit.get("company_id", get_company_id(user))
     company = await db.companies.find_one({"company_id": cid}, {"_id": 0})
     checklist_count = await db.audit_checklist.count_documents({"audit_id": audit_id})
-    users_list = await db.users.find({}, {"_id": 0, "name": 1, "role": 1}).to_list(20)
 
     CORAL = colors.HexColor("#F2A292")
     DARK = colors.HexColor("#1F3C5E")
@@ -2513,10 +2512,7 @@ async def generate_opening_minutes_pdf(audit_id: str, user=Depends(get_current_u
     copasst = audit.get("copasst_member", {})
     if copasst and copasst.get("name"):
         rd.append([copasst["name"], f"COPASST - {copasst.get('role', '')}"])
-    for u in users_list[:4]:
-        if u.get("name") not in [r[0] for r in rd[1:]]:
-            rd.append([u.get("name",""), u.get("role","")])
-    while len(rd) < 5: rd.append(["_______________","_______________"])
+    while len(rd) < 3: rd.append(["_______________","_______________"])
     rt = Table(rd, colWidths=[240,240]); rt.setStyle(ths); el.append(rt)
     # 2. REVISION DEL PLAN
     el.append(Paragraph("2. REVISION DEL PLAN DE AUDITORIA", sh))
@@ -2554,9 +2550,27 @@ async def generate_opening_minutes_pdf(audit_id: str, user=Depends(get_current_u
     el.append(Paragraph("<b>1. Llamado a lista.</b>", sbb))
     el.append(Paragraph("La reunion de apertura conto con los siguientes servidores:", sb))
     ad = [["No.","Nombre y Apellido","Cargo / Rol","Firma"]]
-    r = 1; ad.append([str(r), aud or "", "Auditor Lider", ""]); r += 1
-    for u in users_list[:6]: ad.append([str(r), u.get("name",""), u.get("role",""), ""]); r += 1
-    while len(ad) < 9: ad.append([str(r), "", "", ""]); r += 1
+    r = 1
+    # Auditor lider
+    ad.append([str(r), aud or "", "Auditor Lider", ""]); r += 1
+    # Auditores de apoyo
+    for aa in audit.get("additional_auditors", []):
+        if aa:
+            ad.append([str(r), aa, "Auditor de Apoyo", ""]); r += 1
+    # Responsables de los procesos
+    for pr in audit.get("process_responsibles", []):
+        if pr:
+            ad.append([str(r), pr, "Responsable SST", ""]); r += 1
+    # COPASST
+    if copasst and copasst.get("name"):
+        ad.append([str(r), copasst["name"], f"COPASST - {copasst.get('role', '')}", ""]); r += 1
+    # Otros asistentes registrados en el campo libre attendees
+    for at_str in audit.get("attendees", []):
+        if at_str and at_str not in [row[1] for row in ad[1:]]:
+            ad.append([str(r), at_str, "Asistente", ""]); r += 1
+    # Filas vacias para firmas adicionales presenciales (minimo 5 filas)
+    target_rows = max(5, len(ad))
+    while len(ad) < target_rows: ad.append([str(r), "", "", ""]); r += 1
     at = Table(ad, colWidths=[30,180,150,120]); at.setStyle(TableStyle([('BACKGROUND',(0,0),(-1,0),DARK),('TEXTCOLOR',(0,0),(-1,0),W),('FONTNAME',(0,0),(-1,0),'Helvetica-Bold'),('FONTSIZE',(0,0),(-1,-1),9),('GRID',(0,0),(-1,-1),0.5,GB),('TOPPADDING',(0,0),(-1,-1),5),('BOTTOMPADDING',(0,0),(-1,-1),5),('ROWHEIGHTS',(0,1),(-1,-1),24),('ALIGN',(0,0),(0,-1),'CENTER')])); el.append(at)
     el.append(Spacer(1,8))
     el.append(Paragraph("<b>2. Presentacion de la Auditoria.</b>", sbb))
@@ -2620,7 +2634,6 @@ async def generate_closing_minutes_pdf(audit_id: str, user=Depends(get_current_u
     findings = await db.findings.find({"audit_id": audit_id, "status": {"$ne": "resolved_by_compliance"}}, {"_id": 0}).to_list(100)
     action_plans = await db.action_plans.find({"audit_id": audit_id}, {"_id": 0}).to_list(100)
 
-    users_list = await db.users.find({}, {"_id": 0, "name": 1, "role": 1}).to_list(20)
     CORAL = colors.HexColor("#F2A292")
     DARK = colors.HexColor("#1F3C5E")
     BLUE = colors.HexColor("#0047AB")
@@ -2722,10 +2735,7 @@ async def generate_closing_minutes_pdf(audit_id: str, user=Depends(get_current_u
     copasst = audit.get("copasst_member", {})
     if copasst and copasst.get("name"):
         rd.append([copasst["name"], f"COPASST - {copasst.get('role', '')}"])
-    for u in users_list[:4]:
-        if u.get("name") not in [r[0] for r in rd[1:]]:
-            rd.append([u.get("name", ""), u.get("role", "")])
-    while len(rd) < 5:
+    while len(rd) < 3:
         rd.append(["_______________", "_______________"])
     rt = Table(rd, colWidths=[240, 240]); rt.setStyle(ths); el.append(rt)
 
@@ -2872,9 +2882,19 @@ async def generate_closing_minutes_pdf(audit_id: str, user=Depends(get_current_u
     ad = [["No.", "Nombre y Apellido", "Cargo / Rol", "Firma"]]
     r = 1
     ad.append([str(r), aud or "", "Auditor Lider", ""]); r += 1
-    for u in users_list[:6]:
-        ad.append([str(r), u.get("name", ""), u.get("role", ""), ""]); r += 1
-    while len(ad) < 9:
+    for aa in audit.get("additional_auditors", []):
+        if aa:
+            ad.append([str(r), aa, "Auditor de Apoyo", ""]); r += 1
+    for pr in audit.get("process_responsibles", []):
+        if pr:
+            ad.append([str(r), pr, "Responsable SST", ""]); r += 1
+    if copasst and copasst.get("name"):
+        ad.append([str(r), copasst["name"], f"COPASST - {copasst.get('role', '')}", ""]); r += 1
+    for at_str in audit.get("attendees", []):
+        if at_str and at_str not in [row[1] for row in ad[1:]]:
+            ad.append([str(r), at_str, "Asistente", ""]); r += 1
+    target_rows = max(5, len(ad))
+    while len(ad) < target_rows:
         ad.append([str(r), "", "", ""]); r += 1
     at = Table(ad, colWidths=[30, 180, 150, 120])
     at.setStyle(TableStyle([
