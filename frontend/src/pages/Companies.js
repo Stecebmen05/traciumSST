@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Building2, Trash2, ArrowRightLeft, CheckCircle, Image as ImageIcon, Upload, X } from 'lucide-react';
+import { Plus, Building2, Trash2, ArrowRightLeft, CheckCircle, Image as ImageIcon, Upload, X, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 
 const MAX_LOGO_MB = 2;
@@ -19,6 +19,7 @@ export default function Companies() {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({ name: '', nit: '', workers_count: 25, risk_level: 2, economic_activity: '', city: '', sedes: 'Sede Principal', processes: 'Administrativo, Operativo' });
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState('');
@@ -61,22 +62,48 @@ export default function Companies() {
         ...form,
         workers_count: parseInt(form.workers_count) || 25,
         risk_level: parseInt(form.risk_level) || 2,
-        sedes: form.sedes.split(',').map(s => s.trim()),
-        processes: form.processes.split(',').map(s => s.trim()),
+        sedes: typeof form.sedes === 'string' ? form.sedes.split(',').map(s => s.trim()) : form.sedes,
+        processes: typeof form.processes === 'string' ? form.processes.split(',').map(s => s.trim()) : form.processes,
       };
-      const res = await API.post('/companies', payload);
-      if (logoFile && res.data?.company_id) {
-        try { await uploadLogo(res.data.company_id, logoFile); } catch { toast.error('Empresa creada, pero fallo subir el logo'); }
+      if (editingId) {
+        await API.put(`/companies/${editingId}`, payload);
+        toast.success('Empresa actualizada');
+      } else {
+        const res = await API.post('/companies', payload);
+        if (logoFile && res.data?.company_id) {
+          try { await uploadLogo(res.data.company_id, logoFile); } catch { toast.error('Empresa creada, pero fallo subir el logo'); }
+        }
+        toast.success('Empresa creada');
       }
-      toast.success('Empresa creada');
-      setShowDialog(false);
-      setForm({ name: '', nit: '', workers_count: 25, risk_level: 2, economic_activity: '', city: '', sedes: 'Sede Principal', processes: 'Administrativo, Operativo' });
-      setLogoFile(null); setLogoPreview('');
+      closeDialog();
       fetchCompanies();
       fetchContext();
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Error al crear');
+      toast.error(err.response?.data?.detail || 'Error al guardar');
     }
+  };
+
+  const closeDialog = () => {
+    setShowDialog(false);
+    setEditingId(null);
+    setForm({ name: '', nit: '', workers_count: 25, risk_level: 2, economic_activity: '', city: '', sedes: 'Sede Principal', processes: 'Administrativo, Operativo' });
+    setLogoFile(null); setLogoPreview('');
+  };
+
+  const openEdit = (c) => {
+    setEditingId(c.company_id);
+    setForm({
+      name: c.name || '',
+      nit: c.nit || '',
+      workers_count: c.workers_count || 25,
+      risk_level: c.risk_level || 2,
+      economic_activity: c.economic_activity || '',
+      city: c.city || '',
+      sedes: Array.isArray(c.sedes) ? c.sedes.join(', ') : (c.sedes || 'Sede Principal'),
+      processes: Array.isArray(c.processes) ? c.processes.join(', ') : (c.processes || ''),
+    });
+    setLogoFile(null); setLogoPreview('');
+    setShowDialog(true);
   };
 
   const handleRowLogo = async (companyId, e) => {
@@ -119,14 +146,14 @@ export default function Companies() {
           <h1 className="text-2xl font-bold tracking-tight" style={{ fontFamily: 'Outfit' }}>Gestion de Empresas</h1>
           <p className="text-sm text-[#475569] mt-1">Administra multiples empresas, logotipos y cambia entre ellas</p>
         </div>
-        <Dialog open={showDialog} onOpenChange={(o) => { setShowDialog(o); if (!o) { setLogoFile(null); setLogoPreview(''); } }}>
+        <Dialog open={showDialog} onOpenChange={(o) => { if (!o) closeDialog(); else setShowDialog(true); }}>
           <DialogTrigger asChild>
             <Button data-testid="add-company-btn" className="text-xs" style={{ backgroundColor: '#0047AB' }}>
               <Plus className="w-3 h-3 mr-1" /> Nueva Empresa
             </Button>
           </DialogTrigger>
           <DialogContent className="max-h-[85vh] overflow-y-auto">
-            <DialogHeader><DialogTitle style={{ fontFamily: 'Outfit' }}>Nueva Empresa</DialogTitle></DialogHeader>
+            <DialogHeader><DialogTitle style={{ fontFamily: 'Outfit' }}>{editingId ? 'Editar Empresa' : 'Nueva Empresa'}</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <div><Label className="text-xs font-semibold">Nombre</Label><Input data-testid="company-name-input" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="mt-1" placeholder="Nombre de la empresa" /></div>
               <div><Label className="text-xs font-semibold">NIT</Label><Input value={form.nit} onChange={e => setForm({...form, nit: e.target.value})} className="mt-1" placeholder="900123456-1" /></div>
@@ -147,33 +174,37 @@ export default function Companies() {
               <div><Label className="text-xs font-semibold">Sedes (separadas por coma)</Label><Input value={form.sedes} onChange={e => setForm({...form, sedes: e.target.value})} className="mt-1" /></div>
               <div><Label className="text-xs font-semibold">Procesos (separados por coma)</Label><Input value={form.processes} onChange={e => setForm({...form, processes: e.target.value})} className="mt-1" /></div>
 
-              {/* Logo upload */}
-              <div className="border border-dashed border-[#CBD5E1] rounded-lg p-3 bg-[#F8F9FA]">
-                <Label className="text-xs font-semibold flex items-center gap-1.5"><ImageIcon className="w-3 h-3" /> Logo de la Empresa (opcional)</Label>
-                <p className="text-[10px] text-[#94A3B8] mt-0.5">Aparecera en los PDFs de Acta de Apertura, Cierre e Informe Final. PNG, JPG o WebP, max {MAX_LOGO_MB} MB.</p>
-                <div className="flex items-center gap-3 mt-2">
-                  {logoPreview ? (
-                    <div className="relative">
-                      <img src={logoPreview} alt="logo preview" className="w-20 h-20 object-contain rounded border border-[#E2E8F0] bg-white" data-testid="logo-preview-img" />
-                      <button type="button" onClick={() => { setLogoFile(null); setLogoPreview(''); if (createFileRef.current) createFileRef.current.value = ''; }} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[#D90429] text-white flex items-center justify-center text-xs" data-testid="logo-remove-preview">
-                        <X className="w-3 h-3" />
-                      </button>
+              {/* Logo upload - solo para creacion. Para edicion usar el boton inline de la card */}
+              {!editingId && (
+                <div className="border border-dashed border-[#CBD5E1] rounded-lg p-3 bg-[#F8F9FA]">
+                  <Label className="text-xs font-semibold flex items-center gap-1.5"><ImageIcon className="w-3 h-3" /> Logo de la Empresa (opcional)</Label>
+                  <p className="text-[10px] text-[#94A3B8] mt-0.5">Aparecera en los PDFs de Acta de Apertura, Cierre e Informe Final. PNG, JPG o WebP, max {MAX_LOGO_MB} MB.</p>
+                  <div className="flex items-center gap-3 mt-2">
+                    {logoPreview ? (
+                      <div className="relative">
+                        <img src={logoPreview} alt="logo preview" className="w-20 h-20 object-contain rounded border border-[#E2E8F0] bg-white" data-testid="logo-preview-img" />
+                        <button type="button" onClick={() => { setLogoFile(null); setLogoPreview(''); if (createFileRef.current) createFileRef.current.value = ''; }} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-[#D90429] text-white flex items-center justify-center text-xs" data-testid="logo-remove-preview">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="w-20 h-20 rounded border border-dashed border-[#CBD5E1] flex items-center justify-center bg-white">
+                        <ImageIcon className="w-6 h-6 text-[#CBD5E1]" />
+                      </div>
+                    )}
+                    <div className="flex-1">
+                      <input ref={createFileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={onLogoChange} className="hidden" data-testid="logo-file-input" />
+                      <Button type="button" variant="outline" size="sm" className="text-xs h-8" onClick={() => createFileRef.current?.click()} data-testid="logo-choose-btn">
+                        <Upload className="w-3 h-3 mr-1" /> {logoPreview ? 'Cambiar logo' : 'Subir logo'}
+                      </Button>
                     </div>
-                  ) : (
-                    <div className="w-20 h-20 rounded border border-dashed border-[#CBD5E1] flex items-center justify-center bg-white">
-                      <ImageIcon className="w-6 h-6 text-[#CBD5E1]" />
-                    </div>
-                  )}
-                  <div className="flex-1">
-                    <input ref={createFileRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={onLogoChange} className="hidden" data-testid="logo-file-input" />
-                    <Button type="button" variant="outline" size="sm" className="text-xs h-8" onClick={() => createFileRef.current?.click()} data-testid="logo-choose-btn">
-                      <Upload className="w-3 h-3 mr-1" /> {logoPreview ? 'Cambiar logo' : 'Subir logo'}
-                    </Button>
                   </div>
                 </div>
-              </div>
+              )}
 
-              <Button data-testid="save-company-btn" onClick={handleCreate} className="w-full" style={{ backgroundColor: '#0047AB' }}>Crear Empresa</Button>
+              <Button data-testid="save-company-btn" onClick={handleCreate} className="w-full" style={{ backgroundColor: '#0047AB' }}>
+                {editingId ? 'Guardar cambios' : 'Crear Empresa'}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
@@ -228,6 +259,9 @@ export default function Companies() {
                       <CheckCircle className="w-3 h-3 mr-1" /> Empresa Activa
                     </Button>
                   )}
+                  <Button size="sm" variant="outline" className="text-xs h-8" onClick={() => openEdit(c)} data-testid={`edit-company-${c.company_id}`}>
+                    <Pencil className="w-3 h-3 mr-1" /> Editar
+                  </Button>
                   <input
                     type="file"
                     accept="image/png,image/jpeg,image/webp"
