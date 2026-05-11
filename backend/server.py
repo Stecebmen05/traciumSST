@@ -2523,7 +2523,7 @@ async def generate_opening_minutes_pdf(audit_id: str, user=Depends(get_current_u
         el.append(Paragraph(f"- {o}", sbl))
     el.append(Paragraph("ALCANCE:", ssh))
     el.append(Paragraph(f"Este proceso de auditoria tendra como base los lineamientos definidos por el Ministerio del Trabajo a traves del Decreto 1072 (Articulo 2.2.4.6.30 Alcance de la auditoria de cumplimiento del SG-SST) y la Resolucion 0312 (Estandares Minimos del SG-SST), abarcando entre otros:", sb))
-    for i,item in enumerate(["El cumplimiento de la politica de seguridad y salud en el trabajo;","El resultado de los indicadores de estructura, proceso y resultado;","La participacion de los trabajadores;","El desarrollo de la responsabilidad y la obligacion de rendir cuentas;","El mecanismo de comunicacion de los contenidos del SG-SST a los trabajadores;","La planificacion, desarrollo y aplicacion del SG-SST;","La gestion del cambio;","La consideracion de la seguridad y salud en el trabajo en las nuevas adquisiciones;","El alcance y aplicacion del SG-SST frente a los proveedores y contratistas;","La supervision y medicion de los resultados;","El proceso de investigacion de incidentes, accidentes de trabajo y enfermedades laborales, y su efecto sobre el mejoramiento de la SST en la empresa;","El desarrollo del proceso de auditoria; y","La evaluacion por parte de la alta direccion."],1):
+    for i,item in enumerate(["El cumplimiento de la politica de seguridad y salud en el trabajo;","Los indicadores de estructura, proceso y resultado (a evaluar durante la auditoria);","La participacion de los trabajadores;","El desarrollo de la responsabilidad y la obligacion de rendir cuentas;","El mecanismo de comunicacion de los contenidos del SG-SST a los trabajadores;","La planificacion, desarrollo y aplicacion del SG-SST;","La gestion del cambio;","La consideracion de la seguridad y salud en el trabajo en las nuevas adquisiciones;","El alcance y aplicacion del SG-SST frente a los proveedores y contratistas;","La supervision y medicion de los resultados;","El proceso de investigacion de incidentes, accidentes de trabajo y enfermedades laborales, y su efecto sobre el mejoramiento de la SST en la empresa;","El desarrollo del proceso de auditoria; y","La evaluacion por parte de la alta direccion."],1):
         el.append(Paragraph(f"<b>{i}.</b> {item}", sbl))
     # 3. PERIODICIDAD
     el.append(Paragraph("3. PERIODICIDAD", sh))
@@ -2840,7 +2840,7 @@ async def generate_closing_minutes_pdf(audit_id: str, user=Depends(get_current_u
         ]))
         el.append(plan_t)
     else:
-        el.append(Paragraph("No se definieron planes de accion durante esta auditoria.", sb))
+        el.append(Paragraph("Los planes de accion correctivos y/o preventivos se definiran en los proximos 30 dias habiles, con responsables y fechas concretas, y se documentaran en el Informe Final de Auditoria, conforme al Decreto 1072 de 2015.", sb))
     el.append(Spacer(1, 6))
 
     # 6. CONCLUSIONES
