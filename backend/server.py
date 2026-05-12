@@ -2702,10 +2702,52 @@ async def generate_audit_plan_pdf(audit_id: str, user=Depends(get_current_user))
 
     # 11. FIRMAS
     el.append(Spacer(1, 16))
-    el.append(Paragraph("12. FIRMAS DE APROBACION DEL PLAN", sh))
-    fr = [["Auditor Lider", "Responsable SG-SST / Auditado", "Representante Legal"], ["_______________________", "_______________________", "_______________________"], [aud or "Nombre y firma", (copasst.get("name") or (audit.get("process_responsibles") or [""])[0] or "Nombre y firma"), "Nombre y firma"]]
-    fr_t = Table(fr, colWidths=[173, 173, 174])
-    fr_t.setStyle(TableStyle([('FONTSIZE', (0, 0), (-1, -1), 9), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('TOPPADDING', (0, 0), (-1, -1), 15), ('BOTTOMPADDING', (0, 0), (-1, -1), 5), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold')]))
+    el.append(Paragraph("11. FIRMAS DE APROBACION DEL PLAN", sh))
+    _auditor_lider_name = aud or "_______________________"
+    _resp_sst_name = ""
+    _process_resp_list = [p for p in (audit.get("process_responsibles") or []) if p]
+    if _process_resp_list:
+        _resp_sst_name = _process_resp_list[0]
+    _resp_sst_name = _resp_sst_name or "_______________________"
+    _copasst_name = (copasst.get("name") or "").strip()
+    _copasst_role = (copasst.get("role") or "Miembro COPASST").strip() or "Miembro COPASST"
+
+    if _copasst_name:
+        # 4 columnas: Auditor Lider | Responsable SG-SST/Auditado | Miembro COPASST | Representante Legal
+        fr = [
+            ["Auditor Lider", "Responsable SG-SST / Auditado", f"COPASST ({_copasst_role})", "Representante Legal"],
+            ["_______________________", "_______________________", "_______________________", "_______________________"],
+            [_auditor_lider_name, _resp_sst_name, _copasst_name, "Nombre y firma"],
+            ["Equipo Auditor", "Auditado", "Testigo", "Aprobacion"],
+        ]
+        fr_t = Table(fr, colWidths=[130, 130, 130, 130])
+    else:
+        # 3 columnas si no hay COPASST registrado
+        fr = [
+            ["Auditor Lider", "Responsable SG-SST / Auditado", "Representante Legal"],
+            ["_______________________", "_______________________", "_______________________"],
+            [_auditor_lider_name, _resp_sst_name, "Nombre y firma"],
+            ["Equipo Auditor", "Auditado", "Aprobacion"],
+        ]
+        fr_t = Table(fr, colWidths=[173, 173, 174])
+    fr_t.setStyle(TableStyle([
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, 0), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+        ('TOPPADDING', (0, 1), (-1, 1), 22),  # signature line space
+        ('BOTTOMPADDING', (0, 1), (-1, 1), 4),
+        ('TOPPADDING', (0, 2), (-1, 2), 4),
+        ('BOTTOMPADDING', (0, 2), (-1, 2), 2),
+        ('TOPPADDING', (0, 3), (-1, 3), 0),
+        ('BOTTOMPADDING', (0, 3), (-1, 3), 4),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 2), (-1, 2), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 3), (-1, 3), 'Helvetica-Oblique'),
+        ('TEXTCOLOR', (0, 3), (-1, 3), GB),
+        ('BACKGROUND', (0, 0), (-1, 0), LB),
+    ]))
     el.append(fr_t)
     el.append(Spacer(1, 6))
     el.append(HRFlowable(width="100%", thickness=1, color=CORAL))
