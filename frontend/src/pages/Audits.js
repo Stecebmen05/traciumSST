@@ -1055,6 +1055,43 @@ function ActionPlansView({ audit, onRefresh, canWrite }) {
 }
 
 // === CONSOLIDATION VIEW (Fase 4+5: AI-enhanced report + closure) ===
+function ReportSection({ title, field, aiType, placeholder, color = '#0047AB', sections, setSections, canWrite, aiLoading, onAiGenerate, onSave }) {
+  return (
+    <Card className="border border-[#E2E8F0] bg-white">
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-semibold" style={{ fontFamily: 'Outfit' }}>{title}</CardTitle>
+          <div className="flex gap-1">
+            {canWrite && (
+              <Button size="sm" variant="ghost" className="h-6 text-[10px]" style={{ color }} onClick={() => onAiGenerate(aiType)} disabled={aiLoading[aiType]} data-testid={`ai-${field}-btn`}>
+                <Sparkles className="w-3 h-3 mr-0.5" />{aiLoading[aiType] ? 'Generando...' : 'Mejorar con IA'}
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {canWrite ? (
+          <>
+            <Textarea
+              data-testid={`${field}-input`}
+              value={sections[field] || ''}
+              onChange={e => setSections(prev => ({ ...prev, [field]: e.target.value }))}
+              className="text-xs min-h-[100px]"
+              placeholder={placeholder}
+            />
+            <Button size="sm" className="text-xs h-7 mt-2" style={{ backgroundColor: color }} onClick={() => onSave(field, sections[field])} data-testid={`save-${field}-btn`}>
+              Guardar
+            </Button>
+          </>
+        ) : (
+          <p className="text-xs text-[#0F172A] whitespace-pre-wrap">{sections[field] || 'Pendiente'}</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function ConsolidationView({ audit, onRefresh, canWrite, canUseAiNarrative }) {
   const { user, canDownloadReports } = useAuth();
   const isAuditClosed = ['closed', 'reviewed'].includes(audit?.status);
@@ -1165,29 +1202,6 @@ function ConsolidationView({ audit, onRefresh, canWrite, canUseAiNarrative }) {
 
   const handleDownloadReport = () => { window.open(`${BACKEND_URL}/api/audits/${audit.audit_id}/report/pdf`, '_blank'); toast.success('Generando informe PDF...'); };
 
-  const ReportSection = ({ title, field, aiType, placeholder, color = '#0047AB' }) => (
-    <Card className="border border-[#E2E8F0] bg-white">
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-sm font-semibold" style={{ fontFamily: 'Outfit' }}>{title}</CardTitle>
-          <div className="flex gap-1">
-            {canWrite && <Button size="sm" variant="ghost" className="h-6 text-[10px]" style={{ color }} onClick={() => handleAiGenerate(aiType)} disabled={aiLoading[aiType]} data-testid={`ai-${field}-btn`}>
-              <Sparkles className="w-3 h-3 mr-0.5" />{aiLoading[aiType] ? 'Generando...' : 'Mejorar con IA'}
-            </Button>}
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {canWrite ? (
-          <>
-            <Textarea data-testid={`${field}-input`} value={sections[field]} onChange={e => setSections(prev => ({...prev, [field]: e.target.value}))} className="text-xs min-h-[100px]" placeholder={placeholder} />
-            <Button size="sm" className="text-xs h-7 mt-2" style={{ backgroundColor: color }} onClick={() => handleSaveSection(field, sections[field])}>Guardar</Button>
-          </>
-        ) : (<p className="text-xs text-[#0F172A] whitespace-pre-wrap">{sections[field] || 'Pendiente'}</p>)}
-      </CardContent>
-    </Card>
-  );
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -1263,11 +1277,11 @@ function ConsolidationView({ audit, onRefresh, canWrite, canUseAiNarrative }) {
       </Card>
 
       {/* AI-assisted report sections */}
-      <ReportSection title="Resumen Ejecutivo" field="executive_summary" aiType="executive_summary" placeholder="Resumen ejecutivo de la auditoria..." />
-      <ReportSection title="Fortalezas Identificadas" field="strengths" aiType="strengths" placeholder="Fortalezas del SG-SST..." color="#2A9D8F" />
-      <ReportSection title="Hallazgos (Redaccion Mejorada)" field="findings_report" aiType="findings_report" placeholder="Detalle de hallazgos..." color="#D90429" />
-      <ReportSection title="Recomendaciones" field="recommendations" aiType="recommendations" placeholder="Recomendaciones para la mejora..." color="#F97316" />
-      <ReportSection title="Conclusiones" field="conclusions" aiType="conclusions" placeholder="Conclusiones de la auditoria..." color="#1F3C5E" />
+      <ReportSection title="Resumen Ejecutivo" field="executive_summary" aiType="executive_summary" placeholder="Resumen ejecutivo de la auditoria..." sections={sections} setSections={setSections} canWrite={canWrite} aiLoading={aiLoading} onAiGenerate={handleAiGenerate} onSave={handleSaveSection} />
+      <ReportSection title="Fortalezas Identificadas" field="strengths" aiType="strengths" placeholder="Fortalezas del SG-SST..." color="#2A9D8F" sections={sections} setSections={setSections} canWrite={canWrite} aiLoading={aiLoading} onAiGenerate={handleAiGenerate} onSave={handleSaveSection} />
+      <ReportSection title="Hallazgos (Redaccion Mejorada)" field="findings_report" aiType="findings_report" placeholder="Detalle de hallazgos..." color="#D90429" sections={sections} setSections={setSections} canWrite={canWrite} aiLoading={aiLoading} onAiGenerate={handleAiGenerate} onSave={handleSaveSection} />
+      <ReportSection title="Recomendaciones" field="recommendations" aiType="recommendations" placeholder="Recomendaciones para la mejora..." color="#F97316" sections={sections} setSections={setSections} canWrite={canWrite} aiLoading={aiLoading} onAiGenerate={handleAiGenerate} onSave={handleSaveSection} />
+      <ReportSection title="Conclusiones" field="conclusions" aiType="conclusions" placeholder="Conclusiones de la auditoria..." color="#1F3C5E" sections={sections} setSections={setSections} canWrite={canWrite} aiLoading={aiLoading} onAiGenerate={handleAiGenerate} onSave={handleSaveSection} />
 
       {/* Management Review */}
       <Card className="border border-[#E2E8F0] bg-white">
