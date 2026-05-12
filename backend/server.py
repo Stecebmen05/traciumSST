@@ -53,14 +53,55 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
 GMAIL_USER = os.environ.get("GMAIL_USER", "").strip()
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "").strip().replace(" ", "")
 GMAIL_FROM_NAME = os.environ.get("GMAIL_FROM_NAME", "TraciumSST").strip()
+PORTFOLIO_URL = os.environ.get("PORTFOLIO_URL", "https://portal-estrategico.preview.emergentagent.com/").strip()
+SIGNATURE_IMAGE_PATH = os.path.join(os.path.dirname(__file__), "assets", "email_signature.jpg")
+
+
+def _build_signature_html() -> str:
+    """Build the Stephania Ceballos corporate email signature (inline-image friendly)."""
+    return f"""
+    <div style="margin-top:32px;border-top:1px solid #E2E8F0;padding-top:16px;font-family:Arial,Helvetica,sans-serif;color:#1F3C5E">
+      <img src="cid:stephania_signature" alt="Stephania Ceballos - Psicologa Especialista en SST" style="display:block;max-width:560px;width:100%;height:auto;border-radius:8px" />
+      <table cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;font-size:12px;color:#475569;line-height:1.55">
+        <tr><td style="padding-right:8px">&#9742;</td><td><a href="tel:+573216208039" style="color:#1F3C5E;text-decoration:none">+57 321 620 8039</a></td></tr>
+        <tr><td style="padding-right:8px">&#9993;</td><td><a href="mailto:stephaniaceballosmendoza@gmail.com" style="color:#1F3C5E;text-decoration:none">stephaniaceballosmendoza@gmail.com</a></td></tr>
+        <tr><td style="padding-right:8px">&#127760;</td><td><a href="{PORTFOLIO_URL}" target="_blank" rel="noopener" style="color:#0047AB;text-decoration:underline;font-weight:600">Portafolio de Servicios</a></td></tr>
+        <tr><td style="padding-right:8px">&#9873;</td><td>Rionegro, Antioquia, Colombia</td></tr>
+      </table>
+      <p style="margin:14px 0 4px 0;font-size:11px;color:#94A3B8;font-style:italic">Grow human. Lead better.</p>
+      <p style="margin:0;font-size:10px;color:#94A3B8">Este mensaje y sus anexos son confidenciales. Si lo recibio por error, eliminelo y notifiquenos.</p>
+    </div>
+    """
+
+
+def _wrap_email_with_signature(html_body: str) -> str:
+    """Append the corporate signature to any email body."""
+    return f"""<!doctype html><html><body style="margin:0;padding:0;background:#F8FAFC">
+    <div style="max-width:620px;margin:0 auto;padding:16px;font-family:Arial,Helvetica,sans-serif;color:#0F172A">
+      {html_body}
+      {_build_signature_html()}
+    </div>
+    </body></html>"""
+
+
+def _signature_inline_image() -> dict | None:
+    """Return inline-image attachment dict for the signature (CID = stephania_signature)."""
+    try:
+        with open(SIGNATURE_IMAGE_PATH, "rb") as f:
+            data = f.read()
+        return {"filename": "email_signature.jpg", "content": data, "mimetype": "image/jpeg", "inline_cid": "stephania_signature"}
+    except Exception as e:
+        logger.warning(f"Could not load signature image: {e}")
+        return None
 
 
 def _send_via_gmail_sync(to: str, subject: str, html: str, attachments: list | None = None) -> bool:
-    """Send email synchronously via Gmail SMTP with TLS. attachments: list of dicts {filename, content (bytes or b64 str), mimetype}"""
+    """Send email synchronously via Gmail SMTP with TLS. Supports inline (CID) images and regular attachments."""
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
     from email.mime.application import MIMEApplication
+    from email.mime.image import MIMEImage
     from email.utils import formataddr
     import base64 as _b64
 
@@ -73,9 +114,12 @@ def _send_via_gmail_sync(to: str, subject: str, html: str, attachments: list | N
     msg["Subject"] = subject
     msg["Reply-To"] = GMAIL_USER
 
+    # multipart/related so inline CID images can be referenced from HTML
+    related = MIMEMultipart("related")
     alt = MIMEMultipart("alternative")
     alt.attach(MIMEText(html, "html", "utf-8"))
-    msg.attach(alt)
+    related.attach(alt)
+    msg.attach(related)
 
     for att in attachments or []:
         content = att.get("content")
@@ -85,9 +129,16 @@ def _send_via_gmail_sync(to: str, subject: str, html: str, attachments: list | N
             continue
         mimetype = (att.get("mimetype") or "application/octet-stream").split("/")
         subtype = mimetype[1] if len(mimetype) > 1 else "octet-stream"
-        part = MIMEApplication(content, _subtype=subtype)
-        part.add_header("Content-Disposition", "attachment", filename=att.get("filename", "attachment"))
-        msg.attach(part)
+        cid = att.get("inline_cid")
+        if cid and (mimetype[0] == "image"):
+            img = MIMEImage(content, _subtype=subtype)
+            img.add_header("Content-ID", f"<{cid}>")
+            img.add_header("Content-Disposition", "inline", filename=att.get("filename", f"{cid}.jpg"))
+            related.attach(img)
+        else:
+            part = MIMEApplication(content, _subtype=subtype)
+            part.add_header("Content-Disposition", "attachment", filename=att.get("filename", "attachment"))
+            msg.attach(part)
 
     with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
         server.starttls()
@@ -96,29 +147,38 @@ def _send_via_gmail_sync(to: str, subject: str, html: str, attachments: list | N
     return True
 
 
-async def send_email(to: str, subject: str, html: str, attachments: list | None = None):
-    """Send email via Gmail SMTP (primary), Resend as fallback. Returns True on success, None on failure."""
+async def send_email(to: str, subject: str, html: str, attachments: list | None = None, with_signature: bool = True):
+    """Send email via Gmail SMTP (primary), Resend as fallback. Auto-wraps body with corporate signature."""
     if not to or "@" not in to:
         return None
+    # Wrap with signature + add inline image attachment
+    final_html = _wrap_email_with_signature(html) if with_signature else html
+    final_attachments = list(attachments or [])
+    if with_signature:
+        sig = _signature_inline_image()
+        if sig:
+            final_attachments.append(sig)
     # Try Gmail SMTP first
     if GMAIL_USER and GMAIL_APP_PASSWORD:
         try:
-            await asyncio.to_thread(_send_via_gmail_sync, to, subject, html, attachments)
+            await asyncio.to_thread(_send_via_gmail_sync, to, subject, final_html, final_attachments)
             logger.info(f"Email sent via Gmail to {to}: {subject}")
             return True
         except Exception as e:
             logger.error(f"Gmail SMTP failed to {to}: {e}")
             # fall through to Resend
-    # Fallback: Resend (no attachments support in this fallback path)
+    # Fallback: Resend (signature image won't render inline; signature HTML will fall back to text link)
     if not resend.api_key:
         logger.warning("Neither Gmail nor Resend configured, skipping email")
         return None
     try:
-        params = {"from": SENDER_EMAIL, "to": [to], "subject": subject, "html": html}
-        if attachments:
+        params = {"from": SENDER_EMAIL, "to": [to], "subject": subject, "html": final_html}
+        # Resend supports regular attachments only (no inline CID), skip inline signature image in fallback
+        regular = [a for a in final_attachments if not a.get("inline_cid")]
+        if regular:
             params["attachments"] = [
                 {"filename": a.get("filename"), "content": a.get("content") if isinstance(a.get("content"), str) else base64.b64encode(a["content"]).decode("ascii")}
-                for a in attachments if a.get("content")
+                for a in regular if a.get("content")
             ]
         result = await asyncio.to_thread(resend.Emails.send, params)
         logger.info(f"Email sent via Resend to {to}: {subject}")
