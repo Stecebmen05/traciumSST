@@ -342,6 +342,14 @@ Plataforma integral de gestion, implementacion y auditoria del SG-SST para empre
 - [x] Frontend: dialog de envio con textarea de destinatarios adicionales + textarea de nota, info de auditoria, toast de exito/error con conteo enviados/fallidos
 - [x] Testing iteration 31: 15/15 backend + 100% frontend passed. Email verificado: stephaniaceballosmendoza@gmail.com recibe correctamente
 
+### Sprint 32 - Gmail SMTP + Fix cursor Consolidado (May 12, 2026):
+- [x] Bug fix: cursor en textareas de Consolidado (5 secciones IA del Informe) saltaba al escribir porque ReportSection se redefinia en cada render. Movido fuera de ConsolidationView con props para preservar identidad de componente
+- [x] E2E verificado: texto editado en Resumen Ejecutivo, Fortalezas, Recomendaciones aparece correctamente en el PDF del Informe Final descargado (pdftotext match)
+- [x] Backend: nuevo helper unificado send_email() con Gmail SMTP (TLS 587) como primario + Resend como fallback. Soporta adjuntos PDF (MIME multipart/mixed)
+- [x] Backend: _send_via_gmail_sync usa smtplib + MIMEMultipart con From/Reply-To configurables (GMAIL_USER, GMAIL_APP_PASSWORD, GMAIL_FROM_NAME en .env)
+- [x] Backend: POST /audits/{id}/plan/send-email migrado a send_email() unificado, ahora 3/3 destinatarios reciben PDF (antes 1/3 por restriccion Resend testing mode)
+- [x] Configurado para envio desde stephaniaceballosmendoza@gmail.com a CUALQUIER destinatario externo, validado E2E con usuario
+
 ## Prioritized Backlog
 
 ### P0
