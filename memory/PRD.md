@@ -333,6 +333,15 @@ Plataforma integral de gestion, implementacion y auditoria del SG-SST para empre
 - [x] Documents page: boton "Crear con IA" gradient morado-azul que abre el generador
 - [x] Testing iteration 30: 11/11 backend + 100% frontend passed
 
+### Sprint 31 - Plan de Auditoria PDF + Email (May 12, 2026):
+- [x] Backend GET /api/audits/{id}/plan/pdf: PDF profesional con 12 secciones (info general, objetivo, alcance, criterios, equipo auditor, auditados, metodologia, cronograma, recursos, confidencialidad, firmas) usando ReportLab. Incluye logo de empresa, header coral/azul, cronograma con horas de apertura/inspeccion/cierre
+- [x] Backend POST /api/audits/{id}/plan/send-email: envia PDF como adjunto via Resend a admin/owner/sgsst_manager de la empresa + destinatarios extra opcionales. Template HTML profesional con tabla de detalles
+- [x] Backend: gate permisivo para Plan PDF (admin/owner/auditor/sgsst_manager en CUALQUIER estado, dado que es documento pre-auditoria, a diferencia de las Actas que aun usan _require_pdf_download_access)
+- [x] Backend: sanitizacion HTML del campo comment (html.escape + max 1000 chars) para prevenir inyeccion en email
+- [x] Frontend Audits.js: botones "Plan PDF" (morado) y "Enviar Plan" (azul) en cada tarjeta de auditoria, visibles para admin/owner/auditor/sgsst_manager en cualquier estado
+- [x] Frontend: dialog de envio con textarea de destinatarios adicionales + textarea de nota, info de auditoria, toast de exito/error con conteo enviados/fallidos
+- [x] Testing iteration 31: 15/15 backend + 100% frontend passed. Email verificado: stephaniaceballosmendoza@gmail.com recibe correctamente
+
 ## Prioritized Backlog
 
 ### P0

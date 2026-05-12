@@ -2604,7 +2604,9 @@ async def send_audit_plan_email(audit_id: str, request: Request, user=Depends(re
     except Exception:
         pass
     explicit_recipients = body.get("recipients", []) or []
-    comment = (body.get("comment") or "").strip()
+    comment_raw = (body.get("comment") or "").strip()
+    import html as _html
+    comment = _html.escape(comment_raw)[:1000]
 
     audit = await db.audits.find_one({"audit_id": audit_id}, {"_id": 0})
     if not audit:
