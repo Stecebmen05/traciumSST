@@ -337,6 +337,59 @@ AUDITOR_SIGNATURE = {
     ]
 }
 
+
+def _resolve_auditor_signature(audit_auditor: str | None) -> dict:
+    """Return AUDITOR_SIGNATURE only when the audit's lead auditor matches Stephania.
+    Otherwise return a generic signature block (no fake credentials)."""
+    aud = (audit_auditor or "").strip().upper()
+    stephania_keywords = ["STEPHANIA", "CEBALLOS"]
+    if aud and all(k in aud for k in stephania_keywords):
+        return AUDITOR_SIGNATURE
+    if not aud:
+        # No auditor registered -> use Stephania's block as default (multi-tenant safety)
+        return AUDITOR_SIGNATURE
+    # Other auditor -> generic block, no fake credentials
+    return {
+        "name": audit_auditor.strip() if audit_auditor else "Auditor Lider",
+        "title_lines": [
+            "Auditor Lider del SG-SST",
+            "(Idoneidad documentada en archivo de la auditoria)",
+        ],
+        "annexes": [],
+        "is_stephania": False,
+    }
+
+
+def _audit_signature_block(audit: dict) -> tuple[list, dict]:
+    """Build the multi-party signature rows table for Actas (Apertura/Cierre).
+    Returns (table_rows, sig_info) where rows is the list-of-lists for Table()."""
+    auditor_name = (audit.get("auditor") or "").strip() or "_______________________"
+    proc = [p for p in (audit.get("process_responsibles") or []) if p]
+    auditado_name = proc[0] if proc else "_______________________"
+    cop = audit.get("copasst_member") or {}
+    cop_name = (cop.get("name") or "").strip()
+    cop_role = (cop.get("role") or "Miembro COPASST").strip() or "Miembro COPASST"
+
+    if cop_name:
+        rows = [
+            ["Auditor Lider", "Responsable SG-SST / Auditado", f"COPASST ({cop_role})", "Representante Legal"],
+            ["_____________________", "_____________________", "_____________________", "_____________________"],
+            [auditor_name, auditado_name, cop_name, "Nombre y firma"],
+            ["C.C. ____________", "C.C. ____________", "C.C. ____________", "C.C. ____________"],
+            ["Equipo Auditor", "Auditado", "Testigo", "Aprobacion"],
+        ]
+        widths = [130, 130, 130, 130]
+    else:
+        rows = [
+            ["Auditor Lider", "Responsable SG-SST / Auditado", "Representante Legal"],
+            ["_____________________", "_____________________", "_____________________"],
+            [auditor_name, auditado_name, "Nombre y firma"],
+            ["C.C. ____________", "C.C. ____________", "C.C. ____________"],
+            ["Equipo Auditor", "Auditado", "Aprobacion"],
+        ]
+        widths = [173, 173, 174]
+    return rows, {"widths": widths}
+
 # ==================== OBJECT STORAGE ====================
 
 STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
@@ -809,8 +862,10 @@ async def create_user_with_password(request: Request, user=Depends(require_role(
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     # Strict company isolation: non-admin users get EXACTLY [company_id] (no defaults)
     if role in ("admin", "owner"):
-        company_ids_list = [company_id] if company_id else user.get("company_ids", [])
-        active_cid = company_id or user.get("active_company_id", "")
+        # Admins start with empty company list unless the creator pasa company_id explicito.
+        # No heredan las empresas del creador (multi-tenant strict isolation).
+        company_ids_list = [company_id] if company_id else []
+        active_cid = company_id or ""
     else:
         if not company_id:
             raise HTTPException(status_code=400, detail="Debes asignar una empresa al crear un usuario con rol no-admin")
@@ -880,8 +935,10 @@ async def create_demo_user(request: Request, admin=Depends(require_role("admin")
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     # Strict company isolation for demo users
     if role in ("admin", "owner"):
-        company_ids_list = [company_id] if company_id else admin.get("company_ids", [])
-        active_cid = company_id or admin.get("active_company_id", "")
+        # Demo admin/owner: empezar SIN empresas heredadas. Solo si admin explicitamente pasa company_id se asigna.
+        # Asi el demo admin debe crear sus propias empresas (no ve las del creador).
+        company_ids_list = [company_id] if company_id else []
+        active_cid = company_id or ""
     else:
         active_cid = company_id or admin.get("active_company_id", "")
         if not active_cid:
@@ -3016,23 +3073,47 @@ async def generate_opening_minutes_pdf(audit_id: str, user=Depends(get_current_u
     el.append(Spacer(1,10))
     el.append(Paragraph("OBSERVACIONES:", sh))
     for _ in range(3): el.append(Paragraph("_" * 95, sb))
-    # FIRMAS
+    # FIRMAS - Multi-parte (Auditor + Auditado + COPASST + Rep Legal)
     el.append(Spacer(1,16))
     el.append(HRFlowable(width="100%", thickness=1, color=CORAL))
-    el.append(Spacer(1,8))
-    sig = AUDITOR_SIGNATURE
-    sig_name = aud or sig["name"]
-    from reportlab.lib.enums import TA_CENTER as _TA_C
-    _sc = ParagraphStyle('sc', fontName='Helvetica', fontSize=8, alignment=_TA_C, textColor=colors.HexColor("#475569"), leading=10)
-    _sn = ParagraphStyle('sn', fontName='Helvetica-Bold', fontSize=9, alignment=_TA_C, textColor=DARK)
-    el.append(Paragraph("_________________________________", _sc))
-    el.append(Paragraph(f"<b>{sig_name}</b>", _sn))
-    for line in sig["title_lines"]:
-        el.append(Paragraph(line, _sc))
-    el.append(Spacer(1,16))
-    el.append(HRFlowable(width="100%", thickness=1, color=CORAL))
-    el.append(Paragraph(f"{sig_name} | (+57) 321 620 8039 | stephania.ceballos@laofi.onmicrosoft.com", sm))
-    el.append(Paragraph("Ciudadela Complex, Llanogrande Lote 57-58 Rionegro - Antioquia", sm))
+    el.append(Spacer(1,6))
+    el.append(Paragraph("FIRMAS DE LOS ASISTENTES", sh))
+    _rows, _meta = _audit_signature_block(audit)
+    _sig_t = Table(_rows, colWidths=_meta["widths"])
+    _sig_t.setStyle(TableStyle([
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, 0), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+        ('TOPPADDING', (0, 1), (-1, 1), 22),
+        ('BOTTOMPADDING', (0, 1), (-1, 1), 2),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 2), (-1, 2), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 4), (-1, 4), 'Helvetica-Oblique'),
+        ('TEXTCOLOR', (0, 4), (-1, 4), GB),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#F1F5F9")),
+    ]))
+    el.append(_sig_t)
+    el.append(Spacer(1, 12))
+
+    # Bloque del Auditor Lider con credenciales (solo si es Stephania o auditor no registrado)
+    sig = _resolve_auditor_signature(audit.get("auditor"))
+    if sig.get("is_stephania", True):  # default to True for AUDITOR_SIGNATURE
+        sig_name = audit.get("auditor") or sig["name"]
+        el.append(HRFlowable(width="100%", thickness=0.5, color=GB))
+        el.append(Spacer(1, 4))
+        el.append(Paragraph("<b>IDONEIDAD DEL AUDITOR LIDER</b>", ParagraphStyle('sigh', fontName='Helvetica-Bold', fontSize=8, textColor=DARK, leading=10)))
+        from reportlab.lib.enums import TA_LEFT as _TA_L
+        _sc = ParagraphStyle('sc', fontName='Helvetica', fontSize=8, alignment=_TA_L, textColor=colors.HexColor("#475569"), leading=10)
+        _sn = ParagraphStyle('sn', fontName='Helvetica-Bold', fontSize=9, alignment=_TA_L, textColor=DARK)
+        el.append(Paragraph(f"<b>{sig_name}</b>", _sn))
+        for line in sig["title_lines"]:
+            el.append(Paragraph(line, _sc))
+        el.append(Spacer(1,8))
+        el.append(HRFlowable(width="100%", thickness=1, color=CORAL))
+        el.append(Paragraph(f"{sig_name} | (+57) 321 620 8039 | stephaniaceballosmendoza@gmail.com", sm))
+        el.append(Paragraph("Ciudadela Complex, Llanogrande Lote 57-58 Rionegro - Antioquia", sm))
     doc.build(el)
     buf.seek(0)
     fn = f"Acta_Apertura_Auditoria_{cn.replace(' ','_')}_{dt}.pdf"
@@ -3048,7 +3129,7 @@ async def generate_closing_minutes_pdf(audit_id: str, user=Depends(get_current_u
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
     from reportlab.lib.units import inch
-    from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
+    from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 
     audit = await db.audits.find_one({"audit_id": audit_id}, {"_id": 0})
     if not audit:
@@ -3336,21 +3417,44 @@ async def generate_closing_minutes_pdf(audit_id: str, user=Depends(get_current_u
     for _ in range(3):
         el.append(Paragraph("_" * 95, sb))
 
-    # FIRMAS
+    # FIRMAS - Multi-parte
     el.append(Spacer(1, 16))
     el.append(HRFlowable(width="100%", thickness=1, color=CORAL))
-    el.append(Spacer(1, 8))
-    sig = AUDITOR_SIGNATURE
-    sig_name = aud or sig["name"]
-    _sc = ParagraphStyle('sc2', fontName='Helvetica', fontSize=8, alignment=TA_CENTER, textColor=colors.HexColor("#475569"), leading=10)
-    _sn = ParagraphStyle('sn2', fontName='Helvetica-Bold', fontSize=9, alignment=TA_CENTER, textColor=DARK)
-    el.append(Paragraph("_________________________________", _sc))
-    el.append(Paragraph(f"<b>{sig_name}</b>", _sn))
-    for line in sig["title_lines"]:
-        el.append(Paragraph(line, _sc))
-    el.append(Spacer(1, 16))
-    el.append(HRFlowable(width="100%", thickness=1, color=CORAL))
-    el.append(Paragraph(f"{sig_name} | (+57) 321 620 8039 | stephania.ceballos@laofi.onmicrosoft.com", sm))
+    el.append(Spacer(1, 6))
+    el.append(Paragraph("FIRMAS DE LOS ASISTENTES", sh))
+    _rows, _meta = _audit_signature_block(audit)
+    _sig_t = Table(_rows, colWidths=_meta["widths"])
+    _sig_t.setStyle(TableStyle([
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, 0), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 4),
+        ('TOPPADDING', (0, 1), (-1, 1), 22),
+        ('BOTTOMPADDING', (0, 1), (-1, 1), 2),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 2), (-1, 2), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 4), (-1, 4), 'Helvetica-Oblique'),
+        ('TEXTCOLOR', (0, 4), (-1, 4), GB),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#F1F5F9")),
+    ]))
+    el.append(_sig_t)
+    el.append(Spacer(1, 12))
+
+    sig = _resolve_auditor_signature(audit.get("auditor"))
+    if sig.get("is_stephania", True):
+        sig_name = audit.get("auditor") or sig["name"]
+        el.append(HRFlowable(width="100%", thickness=0.5, color=GB))
+        el.append(Spacer(1, 4))
+        el.append(Paragraph("<b>IDONEIDAD DEL AUDITOR LIDER</b>", ParagraphStyle('sigh2', fontName='Helvetica-Bold', fontSize=8, textColor=DARK, leading=10)))
+        _sc = ParagraphStyle('sc2', fontName='Helvetica', fontSize=8, alignment=TA_LEFT, textColor=colors.HexColor("#475569"), leading=10)
+        _sn = ParagraphStyle('sn2', fontName='Helvetica-Bold', fontSize=9, alignment=TA_LEFT, textColor=DARK)
+        el.append(Paragraph(f"<b>{sig_name}</b>", _sn))
+        for line in sig["title_lines"]:
+            el.append(Paragraph(line, _sc))
+        el.append(Spacer(1, 8))
+        el.append(HRFlowable(width="100%", thickness=1, color=CORAL))
+        el.append(Paragraph(f"{sig_name} | (+57) 321 620 8039 | stephaniaceballosmendoza@gmail.com", sm))
 
     doc.build(el)
     buf.seek(0)
@@ -3840,6 +3944,9 @@ async def get_company(user=Depends(get_current_user)):
     cid = get_company_id(user)
     company = await db.companies.find_one({"company_id": cid}, {"_id": 0})
     if not company:
+        # Solo owner auto-recibe default. Admins/demo admins deben crear su propia empresa.
+        if not is_owner(user):
+            raise HTTPException(status_code=404, detail="Aun no tienes empresas. Crea tu primera empresa desde el modulo Empresas.")
         company = {
             "company_id": "default",
             "name": "Mi Empresa",
@@ -4146,16 +4253,20 @@ async def delete_file(file_id: str, user=Depends(get_current_user)):
 
 @api_router.get("/companies")
 async def list_companies(user=Depends(get_current_user)):
-    """List companies the user has access to. Owner/admin see all, others only assigned (strict)."""
-    if is_owner(user) or user.get("role") == "admin":
+    """List companies the user has access to.
+    - Owner (Stephania): sees ALL companies (platform-wide).
+    - Admins (incluyendo demo admins): solo ven las empresas asignadas en company_ids.
+    - Otros roles: solo empresas asignadas, aislamiento estricto.
+    """
+    if is_owner(user):
         companies = await db.companies.find({}, {"_id": 0}).to_list(100)
-    else:
-        user_companies = user.get("company_ids", [])
-        # Strict isolation: remove legacy "default" leaks for non-admin/non-owner users
-        user_companies = [c for c in user_companies if c and c != "default"]
-        if not user_companies:
-            return []
-        companies = await db.companies.find({"company_id": {"$in": user_companies}}, {"_id": 0}).to_list(100)
+        return companies
+    user_companies = user.get("company_ids", [])
+    # Strict isolation: remove legacy "default" leaks for all non-owner users
+    user_companies = [c for c in user_companies if c and c != "default"]
+    if not user_companies:
+        return []
+    companies = await db.companies.find({"company_id": {"$in": user_companies}}, {"_id": 0}).to_list(100)
     return companies
 
 @api_router.post("/companies")
@@ -4269,9 +4380,10 @@ async def get_active_company(user=Depends(get_current_user)):
     cid = get_company_id(user)
     company = await db.companies.find_one({"company_id": cid}, {"_id": 0})
     if not company:
-        # Only auto-create "default" for owner/admin. Other roles must have a real assigned company.
-        if not (is_owner(user) or user.get("role") == "admin"):
-            raise HTTPException(status_code=403, detail="No tienes empresa asignada. Contacta al administrador.")
+        # Solo el owner (Stephania) auto-recibe "Mi Empresa" por primera vez.
+        # Admins (incluyendo demo admins) deben crear sus propias empresas (no se auto-crea ninguna).
+        if not is_owner(user):
+            raise HTTPException(status_code=404, detail="Aun no tienes empresas. Crea tu primera empresa desde el modulo Empresas.")
         company = {
             "company_id": "default",
             "name": "Mi Empresa",
@@ -4803,25 +4915,40 @@ async def generate_audit_report_pdf(audit_id: str, user=Depends(get_current_user
     elements.append(HRFlowable(width="100%", thickness=2, color=CORAL))
     elements.append(Spacer(1, 20))
 
-    # Professional signature block for lead auditor
-    sig = AUDITOR_SIGNATURE
-    sig_name = audit.get("auditor", sig["name"])
+    # Resolver firma del auditor real (no Stephania por default)
+    sig = _resolve_auditor_signature(audit.get("auditor"))
+    sig_name = audit.get("auditor") or sig["name"]
+
+    # Bloque profesional del auditor lider
     elements.append(Paragraph("_________________________________", ParagraphStyle('sigline', alignment=1, fontSize=9)))
     elements.append(Paragraph(f"<b>{sig_name}</b>", ParagraphStyle('signame', fontName='Helvetica-Bold', fontSize=10, alignment=1, textColor=DARK_BLUE)))
     for line in sig["title_lines"]:
         elements.append(Paragraph(line, ParagraphStyle('sigtitle', fontName='Helvetica', fontSize=8, alignment=1, textColor=colors.HexColor("#475569"), leading=11)))
     elements.append(Spacer(1, 20))
 
+    # Tabla de Revisado / Aprobado con nombres legibles (no user_id)
+    _reviewer_name = ""
+    if review and isinstance(review, dict):
+        _reviewer_name = (review.get("reviewer") or "").strip()
+    _reviewer_name = _reviewer_name or "Alta Direccion"
+
+    _proc = [p for p in (audit.get("process_responsibles") or []) if p]
+    _reviso_name = _proc[0] if _proc else "Responsable SG-SST"
+
     firma_data = [
         ["________________________", "________________________"],
         ["Reviso", "Aprobo"],
-        [audit.get("created_by", "Responsable SST"), review.get("reviewer", "Alta Direccion") if review else "Alta Direccion"],
+        [_reviso_name, _reviewer_name],
+        ["Responsable SG-SST / Auditado", "Alta Direccion"],
     ]
     firma_table = Table(firma_data, colWidths=[200, 200])
     firma_table.setStyle(TableStyle([
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTSIZE', (0, 0), (-1, -1), 9),
         ('FONTNAME', (0, 1), (-1, 1), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 3), (-1, 3), 'Helvetica-Oblique'),
+        ('TEXTCOLOR', (0, 3), (-1, 3), colors.HexColor("#94A3B8")),
+        ('FONTSIZE', (0, 3), (-1, 3), 8),
         ('TOPPADDING', (0, 0), (-1, -1), 4),
     ]))
     elements.append(firma_table)
