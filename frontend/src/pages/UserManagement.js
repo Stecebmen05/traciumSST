@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Users as UsersIcon, Shield, Plus, Key, Building2, UserX, UserCheck, Clock } from 'lucide-react';
+import { Users as UsersIcon, Shield, Plus, Key, Building2, UserX, UserCheck, Clock, Eraser } from 'lucide-react';
 import { toast } from 'sonner';
 
 const ROLES = [
@@ -91,6 +91,15 @@ export default function UserManagement() {
       const res = await API.post('/users/create-demo', demoForm);
       setDemoResult(res.data);
       toast.success('Usuario demo creado');
+      fetchUsers();
+    } catch (err) { toast.error(err.response?.data?.detail || 'Error'); }
+  };
+
+  const handleResetCompanies = async (userId, userName) => {
+    if (!window.confirm(`Limpiar TODAS las empresas asignadas a ${userName}?\n\nEl usuario debera crear sus propias empresas al iniciar sesion. Sus sesiones activas seran cerradas.`)) return;
+    try {
+      const res = await API.post(`/users/${userId}/reset-companies`);
+      toast.success(res.data.message || 'Empresas limpiadas');
       fetchUsers();
     } catch (err) { toast.error(err.response?.data?.detail || 'Error'); }
   };
@@ -304,6 +313,14 @@ export default function UserManagement() {
                               onClick={() => handleToggleStatus(u.user_id, u.active !== false)}
                               data-testid={`toggle-status-${u.user_id}`}>
                               {u.active === false ? <><UserCheck className="w-3 h-3 mr-0.5" /> Habilitar</> : <><UserX className="w-3 h-3 mr-0.5" /> Inhabilitar</>}
+                            </Button>
+                          )}
+                          {u.role !== 'owner' && (u.role === 'admin' || u.is_demo) && (u.company_ids?.length > 0) && (
+                            <Button size="sm" variant="ghost" className="h-7 text-[10px] text-[#F97316]"
+                              onClick={() => handleResetCompanies(u.user_id, u.name)}
+                              data-testid={`reset-companies-${u.user_id}`}
+                              title="Limpiar empresas asignadas (el usuario debera crear las suyas)">
+                              <Eraser className="w-3 h-3 mr-0.5" /> Limpiar empresas
                             </Button>
                           )}
                         </div>

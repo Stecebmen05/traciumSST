@@ -986,6 +986,24 @@ async def assign_user_company(user_id: str, request: Request, admin=Depends(requ
     return {"message": "Empresa asignada"}
 
 
+@api_router.post("/users/{user_id}/reset-companies")
+async def reset_user_companies(user_id: str, admin=Depends(require_role("admin"))):
+    """Reset a user's company_ids to empty (used to clean demo admins that inherited owner companies).
+    Owner is protected - cannot be reset."""
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if target.get("email") == OWNER_EMAIL or target.get("role") == "owner":
+        raise HTTPException(status_code=400, detail="No se puede limpiar al propietario")
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {"company_ids": [], "active_company_id": ""}}
+    )
+    # Kill the user's sessions so the next login pulls fresh state
+    await db.user_sessions.delete_many({"user_id": user_id})
+    return {"message": "Empresas removidas. El usuario debera crear sus propias empresas al iniciar sesion.", "user_id": user_id}
+
+
 # ==================== DASHBOARD ====================
 
 @api_router.get("/dashboard")
@@ -5053,6 +5071,39 @@ async def startup():
             logger.info(f"Migration: removed 'default' company_id leak from {affected.modified_count} users")
     except Exception as e:
         logger.warning(f"Company isolation migration failed: {e}")
+
+    # Migration: reset company_ids for DEMO admins that inherited the owner's companies.
+    # Demo admins are not allowed to share company_ids with the owner. Clean them so they
+    # start fresh and must create their own companies.
+    try:
+        owner = await db.users.find_one({"email": OWNER_EMAIL}, {"_id": 0, "company_ids": 1})
+        owner_company_ids = (owner or {}).get("company_ids", []) if owner else []
+        if owner_company_ids:
+            # Find all demo admins/owners that share ANY company with the owner
+            demo_offenders = await db.users.find({
+                "is_demo": True,
+                "role": {"$in": ["admin", "owner"]},
+                "email": {"$ne": OWNER_EMAIL},
+                "company_ids": {"$in": owner_company_ids}
+            }, {"_id": 0, "user_id": 1, "email": 1, "company_ids": 1}).to_list(500)
+            cleaned = 0
+            for u in demo_offenders:
+                # If ALL their companies came from owner, reset to []. Otherwise just remove the overlap.
+                their = set(u.get("company_ids") or [])
+                shared = their.intersection(owner_company_ids)
+                kept = list(their - shared)
+                await db.users.update_one(
+                    {"user_id": u["user_id"]},
+                    {"$set": {"company_ids": kept, "active_company_id": kept[0] if kept else ""}}
+                )
+                # Kill sessions to force fresh state
+                await db.user_sessions.delete_many({"user_id": u["user_id"]})
+                cleaned += 1
+                logger.info(f"Demo admin cleanup: {u.get('email')} removed shared companies {sorted(shared)}")
+            if cleaned:
+                logger.info(f"Migration: cleaned {cleaned} demo admin(s) that had inherited owner companies")
+    except Exception as e:
+        logger.warning(f"Demo admin cleanup migration failed: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
