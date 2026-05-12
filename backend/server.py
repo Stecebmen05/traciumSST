@@ -2414,6 +2414,275 @@ async def _require_pdf_download_access(audit_id: str, user: dict) -> dict:
     return audit
 
 
+@api_router.get("/audits/{audit_id}/plan/pdf")
+async def generate_audit_plan_pdf(audit_id: str, user=Depends(get_current_user)):
+    """Generate the Audit Plan PDF (ISO 19011 / Decreto 1072) - available before opening."""
+    await _require_pdf_download_access(audit_id, user)
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
+
+    audit = await db.audits.find_one({"audit_id": audit_id}, {"_id": 0})
+    if not audit:
+        raise HTTPException(status_code=404, detail="Auditoria no encontrada")
+    cid = audit.get("company_id", get_company_id(user))
+    company = await db.companies.find_one({"company_id": cid}, {"_id": 0}) or {}
+    checklist_count = await db.audit_checklist.count_documents({"audit_id": audit_id})
+
+    DARK = colors.HexColor("#1F3C5E")
+    CORAL = colors.HexColor("#F2A292")
+    GB = colors.HexColor("#94A3B8")
+    LB = colors.HexColor("#F1F5F9")
+    W = colors.white
+
+    bio = io.BytesIO()
+    doc = SimpleDocTemplate(bio, pagesize=letter, leftMargin=40, rightMargin=40, topMargin=40, bottomMargin=40)
+    st = ParagraphStyle('title', fontName='Helvetica-Bold', fontSize=14, textColor=DARK, alignment=TA_CENTER, spaceAfter=10)
+    sh = ParagraphStyle('h', fontName='Helvetica-Bold', fontSize=11, textColor=DARK, spaceBefore=8, spaceAfter=4)
+    sb = ParagraphStyle('b', fontName='Helvetica', fontSize=9, alignment=TA_JUSTIFY, spaceAfter=4, leading=12)
+    sbl = ParagraphStyle('bl', fontName='Helvetica', fontSize=9, leftIndent=14, spaceAfter=2)
+    ths = TableStyle([('BACKGROUND', (0, 0), (-1, 0), DARK), ('TEXTCOLOR', (0, 0), (-1, 0), W), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'), ('FONTSIZE', (0, 0), (-1, -1), 9), ('GRID', (0, 0), (-1, -1), 0.4, GB), ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')])
+
+    cn = company.get("name", "N/A")
+    nit = company.get("nit", "N/A")
+    atype = {"internal": "INTERNA", "external": "EXTERNA", "pesv": "PESV"}.get(audit.get("audit_type", "internal"), "INTERNA")
+    dt = audit.get("scheduled_date", "Por confirmar")
+    end_dt = audit.get("end_date", "Por confirmar")
+    aud = audit.get("auditor", "")
+    copasst = audit.get("copasst_member", {}) or {}
+
+    el = []
+    # Header
+    el.append(HRFlowable(width="100%", thickness=3, color=CORAL))
+    el.append(Spacer(1, 4))
+    _logo = _company_logo_flowable(company, max_w=70, max_h=35)
+    _name_para = Paragraph(f"<b>{cn}</b><br/><font size=8>NIT: {nit}</font>", ParagraphStyle('', fontName='Helvetica-Bold', fontSize=10, textColor=DARK))
+    if _logo:
+        _left_cell = Table([[_logo], [_name_para]], colWidths=[170])
+        _left_cell.setStyle(TableStyle([('ALIGN', (0, 0), (-1, -1), 'LEFT'), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('LEFTPADDING', (0, 0), (-1, -1), 2), ('RIGHTPADDING', (0, 0), (-1, -1), 2), ('TOPPADDING', (0, 0), (-1, -1), 2), ('BOTTOMPADDING', (0, 0), (-1, -1), 2)]))
+    else:
+        _left_cell = _name_para
+    ht = Table([[_left_cell, Paragraph(f"<b>PLAN DE AUDITORIA</b><br/><font size=8>AUDITORIA {atype} AL SG-SST</font>", ParagraphStyle('', fontName='Helvetica-Bold', fontSize=10, alignment=TA_CENTER, textColor=DARK)), Paragraph(f"<b>Version:</b> 01<br/><font size=8><b>Fecha:</b> {dt}</font>", ParagraphStyle('', fontName='Helvetica', fontSize=8, alignment=TA_CENTER))]], colWidths=[180, 200, 100])
+    ht.setStyle(TableStyle([('BOX', (0, 0), (-1, -1), 1, DARK), ('INNERGRID', (0, 0), (-1, -1), 0.5, GB), ('TOPPADDING', (0, 0), (-1, -1), 6), ('BOTTOMPADDING', (0, 0), (-1, -1), 6), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+    el.append(ht)
+    el.append(Spacer(1, 10))
+    el.append(Paragraph("PLAN DE AUDITORIA AL SG-SST", st))
+    el.append(Paragraph(f"<b>Auditoria:</b> {audit.get('title', '')}", sb))
+    el.append(Spacer(1, 8))
+
+    # 1. INFO GENERAL
+    el.append(Paragraph("1. INFORMACION GENERAL", sh))
+    info_rows = [
+        ["Empresa Auditada", cn],
+        ["NIT", nit],
+        ["Tipo de Auditoria", atype],
+        ["Fecha de Inicio", dt],
+        ["Hora de Inicio", audit.get("start_time", "Por confirmar")],
+        ["Fecha de Cierre Prevista", end_dt],
+        ["Hora de Cierre Prevista", audit.get("end_time", "Por confirmar")],
+        ["Numero de Estandares a Evaluar", str(checklist_count) if checklist_count else "Por generar"],
+    ]
+    if audit.get("audit_type") == "pesv":
+        info_rows.append(["Nivel PESV", audit.get("pesv_level", "Avanzado").upper()])
+    info_t = Table(info_rows, colWidths=[200, 320])
+    info_t.setStyle(TableStyle([('FONTSIZE', (0, 0), (-1, -1), 9), ('GRID', (0, 0), (-1, -1), 0.4, GB), ('BACKGROUND', (0, 0), (0, -1), LB), ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'), ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE')]))
+    el.append(info_t)
+
+    # 2. OBJETIVO
+    el.append(Paragraph("2. OBJETIVO", sh))
+    objective = audit.get("objective", "") or f"Verificar el cumplimiento de los estandares minimos del SG-SST de {cn} conforme a la Resolucion 0312 de 2019 y el Decreto 1072 de 2015, identificando hallazgos y oportunidades de mejora."
+    el.append(Paragraph(objective, sb))
+
+    # 3. ALCANCE
+    el.append(Paragraph("3. ALCANCE", sh))
+    scope = audit.get("scope", "") or "Procesos, sedes y actividades que se desarrollan en la organizacion en el marco del Sistema de Gestion de Seguridad y Salud en el Trabajo."
+    el.append(Paragraph(scope, sb))
+
+    # 4. CRITERIOS
+    el.append(Paragraph("4. CRITERIOS DE AUDITORIA", sh))
+    criteria = audit.get("criteria", "Resolucion 0312 de 2019, Decreto 1072 de 2015")
+    el.append(Paragraph(criteria, sb))
+    el.append(Paragraph("Documentos internos: Politica SG-SST, Procedimientos, Matriz de Peligros, Plan de Trabajo Anual, Programas de Vigilancia Epidemiologica.", sb))
+
+    # 5. EQUIPO AUDITOR
+    el.append(Paragraph("5. EQUIPO AUDITOR", sh))
+    team_rows = [["Nombre", "Rol", "Idoneidad"]]
+    if aud:
+        team_rows.append([aud, "Auditor Lider", "Certificado SGI / Licencia SST"])
+    for aa in audit.get("additional_auditors", []) or []:
+        if aa:
+            team_rows.append([aa, "Auditor de Apoyo", "Profesional SST"])
+    while len(team_rows) < 3:
+        team_rows.append(["_______________", "_______________", "_______________"])
+    team_t = Table(team_rows, colWidths=[180, 160, 180])
+    team_t.setStyle(ths)
+    el.append(team_t)
+
+    # 6. AUDITADOS
+    el.append(Paragraph("6. RESPONSABLES DE LOS PROCESOS A AUDITAR", sh))
+    aud_rows = [["Nombre", "Cargo / Rol"]]
+    for pr in audit.get("process_responsibles", []) or []:
+        if pr:
+            aud_rows.append([pr, "Responsable SST / Lider de Proceso"])
+    if copasst.get("name"):
+        aud_rows.append([copasst.get("name", ""), f"COPASST - {copasst.get('role', '')}"])
+    while len(aud_rows) < 3:
+        aud_rows.append(["_______________", "_______________"])
+    aud_t = Table(aud_rows, colWidths=[260, 260])
+    aud_t.setStyle(ths)
+    el.append(aud_t)
+
+    # 7. METODOLOGIA
+    el.append(Paragraph("7. METODOLOGIA", sh))
+    el.append(Paragraph("La auditoria se desarrollara mediante:", sb))
+    for x in [
+        "Revision documental (politicas, procedimientos, registros, evidencias).",
+        "Entrevistas con personal clave y muestreo aleatorio de trabajadores.",
+        "Inspeccion fisica de areas, equipos y condiciones de trabajo.",
+        "Verificacion del cumplimiento de los estandares minimos en sitio.",
+        "Aplicacion del checklist conforme a la Res. 0312 de 2019 y la matriz de evaluacion.",
+    ]:
+        el.append(Paragraph(f"- {x}", sbl))
+
+    # 8. CRONOGRAMA
+    el.append(Paragraph("8. CRONOGRAMA DE LA AUDITORIA", sh))
+    cron_rows = [
+        ["Etapa", "Fecha", "Hora", "Responsable"],
+        ["Reunion de Apertura", dt, audit.get("start_time", "08:00"), aud or "Auditor Lider"],
+        ["Revision documental y entrevistas", dt, "09:00 - 12:00", aud or "Equipo Auditor"],
+        ["Inspeccion fisica en sitio", dt, "13:30 - 16:00", aud or "Equipo Auditor"],
+        ["Consolidacion de hallazgos", end_dt if end_dt != "Por confirmar" else dt, "16:00 - 17:00", aud or "Auditor Lider"],
+        ["Reunion de Cierre", end_dt, audit.get("end_time", "17:00"), aud or "Auditor Lider"],
+    ]
+    cron_t = Table(cron_rows, colWidths=[210, 100, 100, 110])
+    cron_t.setStyle(ths)
+    el.append(cron_t)
+
+    # 9. RECURSOS
+    el.append(Paragraph("9. RECURSOS NECESARIOS", sh))
+    for x in [
+        "Sala de reuniones con proyector y conexion a internet.",
+        "Acceso a la documentacion del SG-SST (fisica o digital).",
+        "Disponibilidad de los responsables de los procesos y miembros del COPASST.",
+        "Permisos para inspeccion en las areas operativas.",
+        "Elementos de Proteccion Personal (EPP) para los auditores.",
+    ]:
+        el.append(Paragraph(f"- {x}", sbl))
+
+    # 10. CONFIDENCIALIDAD
+    el.append(Paragraph("10. CONFIDENCIALIDAD", sh))
+    el.append(Paragraph("El equipo auditor mantendra estricta confidencialidad sobre la informacion a la que tenga acceso durante la auditoria. Los resultados unicamente se compartiran con las personas autorizadas por la alta direccion.", sb))
+
+    # 11. FIRMAS
+    el.append(Spacer(1, 16))
+    el.append(Paragraph("12. FIRMAS DE APROBACION DEL PLAN", sh))
+    fr = [["Auditor Lider", "Responsable SG-SST / Auditado", "Representante Legal"], ["_______________________", "_______________________", "_______________________"], [aud or "Nombre y firma", (copasst.get("name") or (audit.get("process_responsibles") or [""])[0] or "Nombre y firma"), "Nombre y firma"]]
+    fr_t = Table(fr, colWidths=[173, 173, 174])
+    fr_t.setStyle(TableStyle([('FONTSIZE', (0, 0), (-1, -1), 9), ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('TOPPADDING', (0, 0), (-1, -1), 15), ('BOTTOMPADDING', (0, 0), (-1, -1), 5), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold')]))
+    el.append(fr_t)
+    el.append(Spacer(1, 6))
+    el.append(HRFlowable(width="100%", thickness=1, color=CORAL))
+    el.append(Paragraph(f"<i>Documento generado por TraciumSST - {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC</i>", ParagraphStyle('foot', fontName='Helvetica-Oblique', fontSize=7, textColor=GB, alignment=TA_CENTER)))
+
+    doc.build(el)
+    bio.seek(0)
+    fname = f"Plan_Auditoria_{(cn or 'Empresa').replace(' ', '_')}_{dt}.pdf"
+    return StreamingResponse(bio, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+@api_router.post("/audits/{audit_id}/plan/send-email")
+async def send_audit_plan_email(audit_id: str, request: Request, user=Depends(require_role("admin", "auditor"))):
+    """Send the Audit Plan PDF by email to the SG-SST manager and team."""
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    explicit_recipients = body.get("recipients", []) or []
+    comment = (body.get("comment") or "").strip()
+
+    audit = await db.audits.find_one({"audit_id": audit_id}, {"_id": 0})
+    if not audit:
+        raise HTTPException(status_code=404, detail="Auditoria no encontrada")
+    cid = audit.get("company_id", get_company_id(user))
+    company = await db.companies.find_one({"company_id": cid}, {"_id": 0}) or {}
+
+    # Build recipient list: explicit + all sgsst_managers of company + owner + auditors registered
+    recipients = set()
+    for e in explicit_recipients:
+        if e and "@" in e:
+            recipients.add(e.strip().lower())
+    sgsst_users = await db.users.find({"role": {"$in": ["admin", "owner", "sgsst_manager"]}, "active": {"$ne": False}, "$or": [{"company_ids": cid}, {"email": OWNER_EMAIL}]}, {"_id": 0, "email": 1, "name": 1}).to_list(50)
+    for u in sgsst_users:
+        if u.get("email"):
+            recipients.add(u["email"].strip().lower())
+    if not recipients:
+        raise HTTPException(status_code=400, detail="No hay destinatarios configurados")
+
+    # Generate PDF in memory
+    from fastapi.responses import StreamingResponse  # noqa: F401  (already imported globally)
+    plan_resp = await generate_audit_plan_pdf(audit_id, user)
+    # Drain the StreamingResponse body
+    pdf_bytes = b""
+    async for chunk in plan_resp.body_iterator:
+        pdf_bytes += chunk if isinstance(chunk, bytes) else chunk.encode()
+
+    pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+    cn = company.get("name", "N/A")
+    dt = audit.get("scheduled_date", "Por confirmar")
+    fname = f"Plan_Auditoria_{cn.replace(' ', '_')}_{dt}.pdf"
+
+    subject = f"TraciumSST - Plan de Auditoria SG-SST: {audit.get('title', '')}"
+    html = f"""
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">
+      <div style="background:#1F3C5E;padding:20px;color:#fff;border-radius:8px 8px 0 0">
+        <h2 style="margin:0">Plan de Auditoria SG-SST</h2>
+        <p style="margin:4px 0 0 0;font-size:13px;opacity:0.9">{cn}</p>
+      </div>
+      <div style="padding:20px;background:#F8F9FA;border:1px solid #E2E8F0;border-top:0;border-radius:0 0 8px 8px">
+        <p>Estimado(a) Responsable de SG-SST,</p>
+        <p>Adjunto encontrara el <b>Plan de Auditoria</b> correspondiente a:</p>
+        <table style="width:100%;border-collapse:collapse;margin:12px 0">
+          <tr><td style="padding:8px;background:#fff;border:1px solid #E2E8F0"><b>Auditoria</b></td><td style="padding:8px;background:#fff;border:1px solid #E2E8F0">{audit.get('title', '')}</td></tr>
+          <tr><td style="padding:8px;background:#fff;border:1px solid #E2E8F0"><b>Tipo</b></td><td style="padding:8px;background:#fff;border:1px solid #E2E8F0">{audit.get('audit_type', '').upper()}</td></tr>
+          <tr><td style="padding:8px;background:#fff;border:1px solid #E2E8F0"><b>Fecha de Inicio</b></td><td style="padding:8px;background:#fff;border:1px solid #E2E8F0">{dt} {audit.get('start_time', '')}</td></tr>
+          <tr><td style="padding:8px;background:#fff;border:1px solid #E2E8F0"><b>Auditor Lider</b></td><td style="padding:8px;background:#fff;border:1px solid #E2E8F0">{audit.get('auditor', 'N/A')}</td></tr>
+        </table>
+        {f'<p><b>Nota:</b> {comment}</p>' if comment else ''}
+        <p>Por favor revise el plan y confirme la disponibilidad de recursos y personal indicados.</p>
+        <p style="color:#94A3B8;font-size:11px;margin-top:16px">Enviado por: {user.get('name', '')} · {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC</p>
+      </div>
+    </div>
+    """
+
+    # Send with attachment using Resend Python SDK
+    sent_count = 0
+    failed = []
+    if resend.api_key:
+        for to in recipients:
+            try:
+                params = {
+                    "from": SENDER_EMAIL,
+                    "to": [to],
+                    "subject": subject,
+                    "html": html,
+                    "attachments": [{"filename": fname, "content": pdf_b64}],
+                }
+                result = await asyncio.to_thread(resend.Emails.send, params)
+                if result:
+                    sent_count += 1
+                else:
+                    failed.append(to)
+            except Exception as e:
+                logger.error(f"Plan email send failed to {to}: {e}")
+                failed.append(to)
+    else:
+        logger.warning("RESEND_API_KEY not configured")
+    return {"sent": sent_count, "total": len(recipients), "recipients": list(recipients), "failed": failed}
+
+
 @api_router.get("/audits/{audit_id}/opening-minutes/pdf")
 async def generate_opening_minutes_pdf(audit_id: str, user=Depends(get_current_user)):
     await _require_pdf_download_access(audit_id, user)
