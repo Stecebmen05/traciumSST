@@ -2417,7 +2417,10 @@ async def _require_pdf_download_access(audit_id: str, user: dict) -> dict:
 @api_router.get("/audits/{audit_id}/plan/pdf")
 async def generate_audit_plan_pdf(audit_id: str, user=Depends(get_current_user)):
     """Generate the Audit Plan PDF (ISO 19011 / Decreto 1072) - available before opening."""
-    await _require_pdf_download_access(audit_id, user)
+    # Plan de Auditoria es documento pre-auditoria: admin/owner/auditor/sgsst_manager pueden descargarlo en cualquier estado
+    role = user.get("role", "")
+    if role not in ("admin", "owner", "auditor", "sgsst_manager"):
+        raise HTTPException(status_code=403, detail="Rol sin permiso para descargar el Plan de Auditoria")
     from reportlab.lib.pagesizes import letter
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
     from reportlab.lib.styles import ParagraphStyle
@@ -2593,7 +2596,7 @@ async def generate_audit_plan_pdf(audit_id: str, user=Depends(get_current_user))
 
 
 @api_router.post("/audits/{audit_id}/plan/send-email")
-async def send_audit_plan_email(audit_id: str, request: Request, user=Depends(require_role("admin", "auditor"))):
+async def send_audit_plan_email(audit_id: str, request: Request, user=Depends(require_role("admin", "owner", "auditor", "sgsst_manager"))):
     """Send the Audit Plan PDF by email to the SG-SST manager and team."""
     body = {}
     try:

@@ -17,7 +17,7 @@ import ActionPlansGantt from '@/components/ActionPlansGantt';
 import { Separator } from '@/components/ui/separator';
 import {
   Plus, Search, Trash2, CheckCircle, AlertCircle, Sparkles, Send, Eye, X, Clock,
-  ClipboardCheck, FileText, ArrowRight, Calendar, BarChart3, Users, Upload, Download, FileDown, Edit3
+  ClipboardCheck, FileText, ArrowRight, Calendar, BarChart3, Users, Upload, Download, FileDown, Edit3, Mail, ClipboardList
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
@@ -258,6 +258,32 @@ function EmptyState({ msg }) {
 function AuditList({ audits, onSelect, onStatusChange, onDelete, selectedId, canWrite }) {
   const { canDownloadReports, user } = useAuth();
   const isPrivRole = ['admin', 'owner', 'auditor'].includes(user?.role);
+  const canPlanAudit = ['admin', 'owner', 'auditor', 'sgsst_manager'].includes(user?.role);
+  const [emailDlg, setEmailDlg] = useState({ open: false, audit: null, recipients: '', comment: '', sending: false });
+
+  const handleSendEmail = async () => {
+    if (!emailDlg.audit) return;
+    setEmailDlg(d => ({ ...d, sending: true }));
+    try {
+      const recArr = emailDlg.recipients
+        .split(/[,;\n]/)
+        .map(s => s.trim())
+        .filter(s => s && s.includes('@'));
+      const res = await API.post(`/audits/${emailDlg.audit.audit_id}/plan/send-email`, {
+        recipients: recArr,
+        comment: emailDlg.comment,
+      });
+      const { sent = 0, total = 0, failed = [] } = res.data || {};
+      if (sent > 0) toast.success(`Plan enviado a ${sent}/${total} destinatarios`);
+      else toast.error('No se pudo enviar el Plan de Auditoria');
+      if (failed.length) toast.warning(`Fallos: ${failed.join(', ')}`);
+      setEmailDlg({ open: false, audit: null, recipients: '', comment: '', sending: false });
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Error al enviar el plan');
+      setEmailDlg(d => ({ ...d, sending: false }));
+    }
+  };
+
   return (
     <div className="space-y-2">
       {audits.length === 0 ? <EmptyState msg="Sin auditorias programadas" /> : audits.map(a => (
@@ -277,7 +303,17 @@ function AuditList({ audits, onSelect, onStatusChange, onDelete, selectedId, can
                   <span><ClipboardCheck className="w-3 h-3 inline mr-0.5" />{a.checklist_completed || 0}/{a.checklist_count || 0} checklist</span>
                 </div>
               </div>
-              <div className="flex gap-1 flex-shrink-0">
+              <div className="flex gap-1 flex-shrink-0 flex-wrap justify-end">
+                {canPlanAudit && (
+                  <>
+                    <Button size="sm" variant="outline" className="h-7 text-[10px] border-[#7C3AED]/40 text-[#7C3AED] hover:bg-[#7C3AED]/5" onClick={e => { e.stopPropagation(); window.open(`${process.env.REACT_APP_BACKEND_URL}/api/audits/${a.audit_id}/plan/pdf`, '_blank'); }} data-testid={`audit-plan-pdf-${a.audit_id}`}>
+                      <ClipboardList className="w-3 h-3 mr-0.5" /> Plan PDF
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 text-[10px] border-[#0047AB]/40 text-[#0047AB] hover:bg-[#0047AB]/5" onClick={e => { e.stopPropagation(); setEmailDlg({ open: true, audit: a, recipients: '', comment: '', sending: false }); }} data-testid={`audit-plan-email-${a.audit_id}`}>
+                      <Mail className="w-3 h-3 mr-0.5" /> Enviar Plan
+                    </Button>
+                  </>
+                )}
                 {canDownloadReports && (isPrivRole || ['closed', 'reviewed'].includes(a.status)) && (
                   <>
                     <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={e => { e.stopPropagation(); window.open(`${process.env.REACT_APP_BACKEND_URL}/api/audits/${a.audit_id}/opening-minutes/pdf`, '_blank'); }} data-testid={`opening-minutes-${a.audit_id}`}>
@@ -302,6 +338,58 @@ function AuditList({ audits, onSelect, onStatusChange, onDelete, selectedId, can
           </CardContent>
         </Card>
       ))}
+
+      <Dialog open={emailDlg.open} onOpenChange={v => !v && setEmailDlg({ open: false, audit: null, recipients: '', comment: '', sending: false })}>
+        <DialogContent className="max-w-lg" data-testid="audit-plan-email-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-[#1F3C5E]">
+              <Mail className="w-4 h-4 text-[#0047AB]" /> Enviar Plan de Auditoria por Email
+            </DialogTitle>
+          </DialogHeader>
+          {emailDlg.audit && (
+            <div className="space-y-3 text-sm">
+              <div className="bg-[#F1F5F9] p-3 rounded border border-[#E2E8F0] text-[12px]">
+                <div className="font-semibold text-[#0F172A]">{emailDlg.audit.title}</div>
+                <div className="text-[#64748B] mt-1">
+                  {emailDlg.audit.scheduled_date} - {emailDlg.audit.auditor || 'Sin auditor'}
+                </div>
+              </div>
+              <div className="text-[11px] text-[#64748B] leading-relaxed bg-[#FEF3C7] border border-[#FCD34D] p-2 rounded">
+                Se enviara automaticamente a Owner, Admins y Responsables SG-SST de la empresa.
+                Agrega destinatarios adicionales abajo si lo necesitas (auditados, COPASST, etc.).
+              </div>
+              <div>
+                <Label className="text-xs">Destinatarios adicionales (separados por coma)</Label>
+                <Textarea
+                  value={emailDlg.recipients}
+                  onChange={e => setEmailDlg(d => ({ ...d, recipients: e.target.value }))}
+                  placeholder="copasst@empresa.com, lider@empresa.com"
+                  className="text-xs mt-1 h-16"
+                  data-testid="audit-plan-email-recipients"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Nota adicional (opcional)</Label>
+                <Textarea
+                  value={emailDlg.comment}
+                  onChange={e => setEmailDlg(d => ({ ...d, comment: e.target.value }))}
+                  placeholder="Por favor confirmen su disponibilidad para la reunion de apertura."
+                  className="text-xs mt-1 h-20"
+                  data-testid="audit-plan-email-comment"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <Button size="sm" variant="outline" onClick={() => setEmailDlg({ open: false, audit: null, recipients: '', comment: '', sending: false })} disabled={emailDlg.sending} data-testid="audit-plan-email-cancel">
+                  Cancelar
+                </Button>
+                <Button size="sm" className="bg-[#0047AB] hover:bg-[#003585]" onClick={handleSendEmail} disabled={emailDlg.sending} data-testid="audit-plan-email-send">
+                  {emailDlg.sending ? 'Enviando...' : (<><Send className="w-3 h-3 mr-1" /> Enviar</>)}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

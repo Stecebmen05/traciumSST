@@ -1,0 +1,37 @@
+{
+  "summary": "Sprint 31 (Audit Plan PDF + Send Email) tested end-to-end. Backend pytest: 15/15 PASSED. Frontend: 'Plan PDF' and 'Enviar Plan' buttons render for admin/auditor/sgsst_manager on every audit card regardless of status, are hidden for collaborator. Email dialog opens with TEST data-testids (recipients/comment textareas, send/cancel), sends successfully via Resend (sent>=1 to verified domain stephaniaceballosmendoza@gmail.com).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Email Plan dialog", "issues": ["Missing aria-describedby/Description on Radix DialogContent (a11y warning in console). Cosmetic - does not block functionality."]},
+      {"screen": "AuditList row", "issues": ["Right-side button cluster has 6 buttons (Plan PDF, Enviar Plan, Acta Apertura, Acta Cierre, status select, delete) - on smaller widths they wrap to a second line. Works but consider grouping pre-audit actions under a dropdown for cleaner UX."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration31_audit_plan.py",
+    "/app/test_reports/pytest/iteration31_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py now 4780 lines - urgent need to split into modules (audits/, pdf/, indicators/, documents_ai/, auth/). Iteration 30 review already flagged this; another ~300 lines added.",
+    "send_audit_plan_email invokes generate_audit_plan_pdf(audit_id, user) directly to drain its StreamingResponse - tightly couples two endpoints. Extract a pure async function _build_audit_plan_pdf_bytes(audit_id, user) that returns bytes and have both endpoints call it. This also avoids the in-line import inside the function (line 2628).",
+    "send_audit_plan_email recipient resolution: the $or filter includes OWNER_EMAIL globally, which means the owner is ALWAYS added to every plan email across all tenants regardless of company. That is by design ('owner sees all'), but it should be documented; otherwise owner inbox could be flooded.",
+    "No max length / sanitization on body.comment - HTML-injected directly into the email template (line 2656 f-string). At minimum apply html.escape() or replace <>& to prevent HTML injection in outgoing emails.",
+    "Frontend canPlanAudit hard-codes the role list in 3 places (canPlanAudit definition + 2 button onClicks). Move to AuthContext helper canPlanAudit() for DRY consistency.",
+    "Frontend opens Plan PDF via window.open(REACT_APP_BACKEND_URL + ...) which relies on session_token cookie sent cross-site. Since the cookie is set with samesite=none + secure, it works in preview, but may break in some restricted browsers. A signed short-lived URL or fetch+blob approach would be more robust."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration31_audit_plan.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@traciumsst.com/TraciumSST2026!, maria@empresa.com/Maria2026!, sgsst_ui@test.com/Mgr2026!, pedro@empresa.com/Pedro2026!",
+  "seed_data_creation": "No seed created. Used existing TEST_IT24_* audits (open + closed status).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend uses cookie-based auth via /api/auth/login-email which only sets an httpOnly cookie (no token in JSON body). For pytest, capture session_token from requests.Session().cookies and pass as Bearer header - both work. Plan PDF endpoint has its own permissive role gate (admin/owner/auditor/sgsst_manager, ANY status); minutes PDFs still use _require_pdf_download_access which blocks sgsst_manager for open audits. Resend free-tier only delivers to stephaniaceballosmendoza@gmail.com - other addresses appear in 'failed' list (expected). All 15 pytest tests pass. Frontend test-ids: audit-plan-pdf-{id}, audit-plan-email-{id}, audit-plan-email-dialog, audit-plan-email-recipients, audit-plan-email-comment, audit-plan-email-send, audit-plan-email-cancel."
+}
