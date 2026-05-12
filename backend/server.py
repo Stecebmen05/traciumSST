@@ -47,19 +47,81 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_session_token() -> str:
     return str(uuid.uuid4())
 
-# ==================== EMAIL (Resend) ====================
+# ==================== EMAIL (Gmail SMTP - primary, Resend fallback) ====================
 resend.api_key = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "onboarding@resend.dev")
+GMAIL_USER = os.environ.get("GMAIL_USER", "").strip()
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "").strip().replace(" ", "")
+GMAIL_FROM_NAME = os.environ.get("GMAIL_FROM_NAME", "TraciumSST").strip()
 
-async def send_email(to: str, subject: str, html: str):
-    """Send email via Resend (non-blocking)"""
+
+def _send_via_gmail_sync(to: str, subject: str, html: str, attachments: list | None = None) -> bool:
+    """Send email synchronously via Gmail SMTP with TLS. attachments: list of dicts {filename, content (bytes or b64 str), mimetype}"""
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+    from email.mime.application import MIMEApplication
+    from email.utils import formataddr
+    import base64 as _b64
+
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        raise RuntimeError("GMAIL_USER/GMAIL_APP_PASSWORD not configured")
+
+    msg = MIMEMultipart("mixed")
+    msg["From"] = formataddr((GMAIL_FROM_NAME, GMAIL_USER))
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg["Reply-To"] = GMAIL_USER
+
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(html, "html", "utf-8"))
+    msg.attach(alt)
+
+    for att in attachments or []:
+        content = att.get("content")
+        if isinstance(content, str):
+            content = _b64.b64decode(content)
+        if not content:
+            continue
+        mimetype = (att.get("mimetype") or "application/octet-stream").split("/")
+        subtype = mimetype[1] if len(mimetype) > 1 else "octet-stream"
+        part = MIMEApplication(content, _subtype=subtype)
+        part.add_header("Content-Disposition", "attachment", filename=att.get("filename", "attachment"))
+        msg.attach(part)
+
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
+        server.starttls()
+        server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+        server.sendmail(GMAIL_USER, [to], msg.as_string())
+    return True
+
+
+async def send_email(to: str, subject: str, html: str, attachments: list | None = None):
+    """Send email via Gmail SMTP (primary), Resend as fallback. Returns True on success, None on failure."""
+    if not to or "@" not in to:
+        return None
+    # Try Gmail SMTP first
+    if GMAIL_USER and GMAIL_APP_PASSWORD:
+        try:
+            await asyncio.to_thread(_send_via_gmail_sync, to, subject, html, attachments)
+            logger.info(f"Email sent via Gmail to {to}: {subject}")
+            return True
+        except Exception as e:
+            logger.error(f"Gmail SMTP failed to {to}: {e}")
+            # fall through to Resend
+    # Fallback: Resend (no attachments support in this fallback path)
     if not resend.api_key:
-        logger.warning("RESEND_API_KEY not set, skipping email")
+        logger.warning("Neither Gmail nor Resend configured, skipping email")
         return None
     try:
         params = {"from": SENDER_EMAIL, "to": [to], "subject": subject, "html": html}
+        if attachments:
+            params["attachments"] = [
+                {"filename": a.get("filename"), "content": a.get("content") if isinstance(a.get("content"), str) else base64.b64encode(a["content"]).decode("ascii")}
+                for a in attachments if a.get("content")
+            ]
         result = await asyncio.to_thread(resend.Emails.send, params)
-        logger.info(f"Email sent to {to}: {subject}")
+        logger.info(f"Email sent via Resend to {to}: {subject}")
         return result
     except Exception as e:
         logger.error(f"Email send failed to {to}: {e}")
@@ -2662,29 +2724,16 @@ async def send_audit_plan_email(audit_id: str, request: Request, user=Depends(re
     </div>
     """
 
-    # Send with attachment using Resend Python SDK
+    # Send via Gmail SMTP (with Resend fallback) using unified helper
     sent_count = 0
     failed = []
-    if resend.api_key:
-        for to in recipients:
-            try:
-                params = {
-                    "from": SENDER_EMAIL,
-                    "to": [to],
-                    "subject": subject,
-                    "html": html,
-                    "attachments": [{"filename": fname, "content": pdf_b64}],
-                }
-                result = await asyncio.to_thread(resend.Emails.send, params)
-                if result:
-                    sent_count += 1
-                else:
-                    failed.append(to)
-            except Exception as e:
-                logger.error(f"Plan email send failed to {to}: {e}")
-                failed.append(to)
-    else:
-        logger.warning("RESEND_API_KEY not configured")
+    attachments = [{"filename": fname, "content": pdf_bytes, "mimetype": "application/pdf"}]
+    for to in recipients:
+        result = await send_email(to, subject, html, attachments=attachments)
+        if result:
+            sent_count += 1
+        else:
+            failed.append(to)
     return {"sent": sent_count, "total": len(recipients), "recipients": list(recipients), "failed": failed}
 
 
