@@ -5014,6 +5014,16 @@ async def generate_audit_report_pdf(audit_id: str, user=Depends(get_current_user
 # Include router and middleware
 app.include_router(api_router)
 
+# Kubernetes health probe endpoints (root-level, NO /api prefix).
+# Emergent deployments periodically GET /health for liveness/readiness checks.
+@app.get("/health")
+async def health_probe():
+    return {"status": "ok"}
+
+@app.get("/api/health")
+async def health_probe_api():
+    return {"status": "ok"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
