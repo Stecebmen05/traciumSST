@@ -393,6 +393,16 @@ Plataforma integral de gestion, implementacion y auditoria del SG-SST para empre
 - [x] Certificate token se persiste - al reabrir la inspeccion vuelve a mostrar el panel del certificado activo
 - [x] E2E validado: token generado, publico responde 200 con datos anonimizados, NIT no expuesto, revocacion invalida el token (404 despues del DELETE)
 
+### Sprint 36 - Formulario de leads en certificado publico (May 12, 2026):
+- [x] Backend POST /api/public/certificate/{token}/lead: endpoint publico (sin auth) que captura nombre, empresa, whatsapp, email y mensaje del prospecto. Valida token vigente, nombre obligatorio, WhatsApp o Email obligatorios. Sanitiza HTML (html.escape + max 120-1500 chars por campo)
+- [x] Backend persiste lead en coleccion certificate_leads con lead_id, certificate_token, inspection_id, source_company (nombre del certificado que vio), campos del prospecto y timestamp
+- [x] Backend envia email automatico a stephaniaceballosmendoza@gmail.com con tabla HTML profesional: nombre, empresa, WhatsApp con link wa.me clicable, email mailto, mensaje, link al certificado que vio. Usa send_email() con firma corporativa inline
+- [x] Backend GET /api/certificate/leads (admin/owner only): lista todos los leads capturados ordenados por fecha desc
+- [x] Frontend PublicCertificate: reemplazado el link externo al portafolio por boton CTA que abre modal con formulario
+- [x] Frontend modal: header gradient azul-morado, campos con validacion visual, boton "Contactar a Stephania" con estado loading, mensaje de exito con check verde y opciones (Ver portafolio / Cerrar)
+- [x] E2E validado: submit exitoso persiste lead, email llega a stephaniaceballosmendoza@gmail.com con datos del prospecto y link al certificado, validaciones 400 (nombre vacio, sin contacto) y 404 (token invalido) funcionan
+- [x] Bugfix critico: agregado app.include_router(api_router) que se habia eliminado por accidente en edit anterior, restaurando todos los endpoints /api/* (login, indicators, audits, etc.)
+
 ## Prioritized Backlog
 
 ### P0

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import axios from 'axios';
-import { CheckCircle2, Shield, Award, ExternalLink, Mail, Phone, Sparkles, Loader2, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Shield, Award, ExternalLink, Mail, Phone, Sparkles, Loader2, AlertCircle, X, Send } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -10,6 +10,36 @@ export default function PublicCertificate() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ name: '', company: '', whatsapp: '', email: '', message: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+
+  const submitLead = async () => {
+    setSubmitError('');
+    if (!form.name.trim() || (!form.whatsapp.trim() && !form.email.trim())) {
+      setSubmitError('Nombre y (WhatsApp o Email) son obligatorios');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await axios.post(`${BACKEND_URL}/api/public/certificate/${token}/lead`, form);
+      setSubmitted(true);
+    } catch (e) {
+      setSubmitError(e.response?.data?.detail || 'Error al enviar');
+    }
+    setSubmitting(false);
+  };
+
+  const closeForm = () => {
+    setShowForm(false);
+    setTimeout(() => {
+      setSubmitted(false);
+      setForm({ name: '', company: '', whatsapp: '', email: '', message: '' });
+      setSubmitError('');
+    }, 300);
+  };
 
   useEffect(() => {
     axios.get(`${BACKEND_URL}/api/public/certificate/${token}`)
@@ -119,10 +149,10 @@ export default function PublicCertificate() {
               <a href={`mailto:${data.consultant.email}`} className="flex items-center gap-1 hover:text-[#0047AB]"><Mail className="w-3 h-3" /> {data.consultant.email}</a>
             </div>
 
-            <a href={portfolioUrl} target="_blank" rel="noopener noreferrer" className="mt-5 inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-[#0047AB] to-[#7C3AED] text-white text-sm font-bold hover:scale-105 transition-transform shadow-lg" data-testid="cta-portfolio">
+            <button onClick={() => setShowForm(true)} className="mt-5 inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-[#0047AB] to-[#7C3AED] text-white text-sm font-bold hover:scale-105 transition-transform shadow-lg cursor-pointer" data-testid="cta-portfolio">
               <Sparkles className="w-4 h-4" /> Solicita tu propia auditoria SG-SST
-              <ExternalLink className="w-4 h-4" />
-            </a>
+              <Send className="w-4 h-4" />
+            </button>
             <p className="text-[10px] text-[#94A3B8] mt-3 italic">Grow human. Lead better.</p>
           </div>
 
@@ -137,6 +167,84 @@ export default function PublicCertificate() {
           </div>
         </div>
       </div>
+
+      {/* Lead form modal */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={closeForm} data-testid="lead-form-modal">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden" onClick={e => e.stopPropagation()}>
+            {!submitted ? (
+              <>
+                <div className="bg-gradient-to-r from-[#0047AB] to-[#7C3AED] p-5 text-white flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest opacity-80">Contactame</p>
+                    <h3 className="text-lg font-bold" style={{ fontFamily: 'Outfit' }}>Solicita tu auditoria SG-SST</h3>
+                  </div>
+                  <button onClick={closeForm} className="p-1 rounded-full hover:bg-white/15" data-testid="close-lead-form">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-5 space-y-3">
+                  <p className="text-xs text-[#64748B] leading-relaxed">
+                    Dejame tus datos y me pongo en contacto contigo en menos de 24 horas. <b>Stephania Ceballos</b> - Psicologa, Especialista SST, Auditora HSEQ.
+                  </p>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#0F172A] mb-1">Nombre completo *</label>
+                    <input type="text" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0047AB]/30" placeholder="Tu nombre" data-testid="lead-name" />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#0F172A] mb-1">Empresa</label>
+                    <input type="text" value={form.company} onChange={e => setForm({ ...form, company: e.target.value })} className="w-full px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0047AB]/30" placeholder="Nombre de tu empresa" data-testid="lead-company" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-[#0F172A] mb-1">WhatsApp *</label>
+                      <input type="tel" value={form.whatsapp} onChange={e => setForm({ ...form, whatsapp: e.target.value })} className="w-full px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0047AB]/30" placeholder="+57 300 000 0000" data-testid="lead-whatsapp" />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-[#0F172A] mb-1">Email</label>
+                      <input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} className="w-full px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0047AB]/30" placeholder="tu@email.com" data-testid="lead-email" />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-[#94A3B8]">* WhatsApp o Email son obligatorios (al menos uno).</p>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#0F172A] mb-1">Cuentame brevemente</label>
+                    <textarea value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} rows="3" className="w-full px-3 py-2 text-sm border border-[#E2E8F0] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0047AB]/30" placeholder="Ej: Somos 25 trabajadores en construccion, necesitamos preparar auditoria SG-SST..." data-testid="lead-message" />
+                  </div>
+                  {submitError && (
+                    <div className="bg-red-50 border border-red-200 text-red-700 text-xs p-2 rounded flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5" /> {submitError}
+                    </div>
+                  )}
+                  <button onClick={submitLead} disabled={submitting} className="w-full mt-2 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-[#0047AB] to-[#7C3AED] text-white text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-60" data-testid="lead-submit">
+                    {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {submitting ? 'Enviando...' : 'Contactar a Stephania'}
+                  </button>
+                  <p className="text-[10px] text-[#94A3B8] text-center">Tus datos se usan solo para responderte. No comparto informacion con terceros.</p>
+                </div>
+              </>
+            ) : (
+              <div className="p-8 text-center">
+                <div className="w-16 h-16 rounded-full bg-[#DCFCE7] flex items-center justify-center mx-auto mb-3">
+                  <CheckCircle2 className="w-8 h-8 text-[#2A9D8F]" />
+                </div>
+                <h3 className="text-lg font-bold text-[#0F172A]" style={{ fontFamily: 'Outfit' }}>Gracias!</h3>
+                <p className="text-sm text-[#64748B] mt-2 leading-relaxed">
+                  He recibido tu mensaje y me pondre en contacto contigo en menos de 24 horas.
+                </p>
+                <p className="text-xs text-[#94A3B8] mt-3 italic">- Stephania Ceballos</p>
+                <div className="flex gap-2 justify-center mt-5 flex-wrap">
+                  <a href={portfolioUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg border border-[#7C3AED] text-[#7C3AED] text-xs font-semibold hover:bg-[#7C3AED] hover:text-white transition-colors" data-testid="lead-visit-portfolio">
+                    <ExternalLink className="w-3.5 h-3.5" /> Ver portafolio
+                  </a>
+                  <button onClick={closeForm} className="px-4 py-2 rounded-lg bg-[#F1F5F9] text-[#64748B] text-xs font-semibold hover:bg-[#E2E8F0]" data-testid="lead-close">
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

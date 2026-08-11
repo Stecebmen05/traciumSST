@@ -5409,6 +5409,10 @@ async def revoke_public_certificate(inspection_id: str, user=Depends(require_rol
     return {"message": "Certificado revocado"}
 
 
+# Include api_router routes into the app now that all endpoints are defined
+app.include_router(api_router)
+
+
 @app.get("/api/public/certificate/{token}")
 async def public_certificate(token: str):
     """Public endpoint (no auth) - returns anonymized certificate data + CTA."""
@@ -5468,7 +5472,82 @@ async def public_certificate(token: str):
     }
 
 
-app.include_router(api_router)
+@app.post("/api/public/certificate/{token}/lead")
+async def certificate_lead(token: str, request: Request):
+    """Public endpoint - capture lead when a visitor submits the contact form on the certificate page.
+    Sends email to Stephania with lead details + link back to the certificate."""
+    insp = await db.mintrabajo_inspections.find_one({"public_certificate_token": token}, {"_id": 0})
+    if not insp:
+        raise HTTPException(status_code=404, detail="Certificado no valido")
+    # Check expiration
+    exp = insp.get("certificate_expires_at", "")
+    if exp:
+        try:
+            if datetime.fromisoformat(exp.replace("Z", "+00:00")) < datetime.now(timezone.utc):
+                raise HTTPException(status_code=410, detail="Certificado expirado")
+        except (ValueError, AttributeError):
+            pass
+
+    body = await request.json()
+    import html as _html
+    name = _html.escape((body.get("name") or "").strip())[:120]
+    company = _html.escape((body.get("company") or "").strip())[:200]
+    whatsapp = _html.escape((body.get("whatsapp") or "").strip())[:40]
+    email_lead = _html.escape((body.get("email") or "").strip())[:120]
+    message = _html.escape((body.get("message") or "").strip())[:1500]
+
+    if not name or not (whatsapp or email_lead):
+        raise HTTPException(status_code=400, detail="Nombre y (WhatsApp o Email) son obligatorios")
+
+    company_doc = await db.companies.find_one({"company_id": insp["company_id"]}, {"_id": 0, "name": 1}) or {}
+    frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    cert_url = f"{frontend_url}/certificate/{token}" if frontend_url else f"/certificate/{token}"
+
+    # Persist lead
+    lead_doc = {
+        "lead_id": f"lead_{uuid.uuid4().hex[:8]}",
+        "certificate_token": token,
+        "inspection_id": insp.get("inspection_id"),
+        "source_company": company_doc.get("name", ""),
+        "name": name,
+        "company": company,
+        "whatsapp": whatsapp,
+        "email": email_lead,
+        "message": message,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.certificate_leads.insert_one(lead_doc)
+    lead_doc.pop("_id", None)
+
+    # Notify Stephania (owner)
+    subject = f"Nuevo lead desde certificado - {name}"
+    html = f"""
+    <h2 style="color:#0047AB">Nuevo interesado en tus servicios SG-SST</h2>
+    <p>Alguien acaba de solicitar informacion desde el <b>certificado publico</b> emitido a <b>{company_doc.get('name','')}</b>.</p>
+    <table cellpadding="8" cellspacing="0" border="0" style="border-collapse:collapse;font-family:Arial,sans-serif;font-size:13px;color:#0F172A;margin-top:12px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:8px">
+      <tr><td style="font-weight:bold;background:#EFF6FF">Nombre</td><td>{name}</td></tr>
+      <tr><td style="font-weight:bold;background:#EFF6FF">Empresa</td><td>{company or '<em style="color:#94A3B8">No indico</em>'}</td></tr>
+      <tr><td style="font-weight:bold;background:#EFF6FF">WhatsApp</td><td>{('<a href="https://wa.me/'+whatsapp.replace(' ','').replace('+','')+'" style="color:#2A9D8F">'+whatsapp+'</a>') if whatsapp else '<em style="color:#94A3B8">No indico</em>'}</td></tr>
+      <tr><td style="font-weight:bold;background:#EFF6FF">Email</td><td>{('<a href="mailto:'+email_lead+'" style="color:#0047AB">'+email_lead+'</a>') if email_lead else '<em style="color:#94A3B8">No indico</em>'}</td></tr>
+      <tr><td style="font-weight:bold;background:#EFF6FF;vertical-align:top">Mensaje</td><td>{message or '<em style="color:#94A3B8">Sin mensaje</em>'}</td></tr>
+      <tr><td style="font-weight:bold;background:#EFF6FF">Certificado que vio</td><td><a href="{cert_url}" style="color:#7C3AED">Ver certificado</a></td></tr>
+    </table>
+    <p style="margin-top:14px;font-size:12px;color:#64748B">Fecha: {lead_doc['created_at']}</p>
+    """
+    owner_email = OWNER_EMAIL
+    try:
+        await send_email(owner_email, subject, html)
+    except Exception as e:
+        logger.warning(f"Lead notification failed: {e}")
+
+    return {"message": "Gracias, Stephania se pondra en contacto pronto.", "lead_id": lead_doc["lead_id"]}
+
+
+@app.get("/api/certificate/leads")
+async def list_certificate_leads(user=Depends(require_role("admin", "owner"))):
+    """List all captured leads (owner/admin only)."""
+    leads = await db.certificate_leads.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return leads
 
 # Kubernetes health probe endpoints (root-level, NO /api prefix).
 # Emergent deployments periodically GET /health for liveness/readiness checks.
