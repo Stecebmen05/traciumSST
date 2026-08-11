@@ -350,6 +350,25 @@ Plataforma integral de gestion, implementacion y auditoria del SG-SST para empre
 - [x] Backend: POST /audits/{id}/plan/send-email migrado a send_email() unificado, ahora 3/3 destinatarios reciben PDF (antes 1/3 por restriccion Resend testing mode)
 - [x] Configurado para envio desde stephaniaceballosmendoza@gmail.com a CUALQUIER destinatario externo, validado E2E con usuario
 
+### Sprint 33 - Firma corporativa en correos + Fix firmas PDFs + Aislamiento demo admin (May 12, 2026):
+- [x] Firma corporativa Stephania Ceballos embebida como imagen inline (CID multipart/related) en TODOS los correos salientes. Auto-append via _wrap_email_with_signature en send_email(). Incluye telefono clicable, email, portafolio (portal-estrategico.preview.emergentagent.com), Rionegro y tagline "Grow human. Lead better."
+- [x] Fix numeracion Plan de Auditoria: seccion "11. FIRMAS" (antes brincaba a 12)
+- [x] Fix rol confuso en Plan/Actas: COPASST ya no aparece como fallback del "Responsable SG-SST/Auditado". Multi-firma con 4 columnas si hay COPASST registrado, 3 si no
+- [x] Fix critico credenciales falsas: nuevo helper _resolve_auditor_signature() devuelve las credenciales/licencia/certificados de Stephania SOLO si el auditor coincide con ella. Otro auditor -> bloque generico "Auditor Lider del SG-SST" sin licencia falsa
+- [x] Fix Informe Final: seccion "7. FIRMAS" ahora muestra Reviso/Aprobo con nombres legibles (no user_id UUID). Usa process_responsibles[0] o company.sgsst_responsible
+- [x] Multi-tenant isolation critico: create_demo_user y create_user_with_password ya no heredan company_ids del admin creador. Demo admin/admin nuevos empiezan con [] y deben crear sus propias empresas
+- [x] list_companies: solo el owner (Stephania) ve todas. Cualquier admin regular o demo admin solo ve las empresas en su company_ids
+- [x] get_active_company y /company: no auto-crean "Mi Empresa" para admins que no sean owner. Devuelven 404 con mensaje claro pidiendo crear la primera empresa
+- [x] Auto-migration en startup: escanea demo admins (is_demo=True) con role admin/owner cuyos company_ids se solapen con los del owner (Stephania) y los limpia automaticamente. Sesiones tambien eliminadas para forzar re-login
+- [x] Nuevo endpoint POST /users/{user_id}/reset-companies: admin puede resetear a cualquier demo admin/admin (excepto owner) con un click. Kills sessions
+- [x] UI: boton naranja "Limpiar empresas" en UserManagement junto a demo admins que tengan companies asignadas
+- [x] Fix deployment: agregado GET /health y GET /api/health (return {status:ok}) para probes de Kubernetes. Antes los pods se marcaban unhealthy por 404 en /health
+- [x] Acta de Cierre: muestra audit.end_time real en "Hora de Cierre" y en el texto "Siendo las {hora}..."
+- [x] Acta de Apertura: idem con audit.start_time
+- [x] Actas y Plan: usan company.legal_representative y company.sgsst_responsible (con C.C.) para las firmas oficiales. Fallback a process_responsibles[0] si no hay datos de empresa
+- [x] Nuevos campos en modelo Company: legal_representative, legal_representative_id, sgsst_responsible, sgsst_responsible_id
+- [x] Frontend Companies.js: nueva seccion "Datos para Actas Oficiales" en dialog de crear/editar empresa con 4 campos
+
 ## Prioritized Backlog
 
 ### P0
