@@ -21,6 +21,7 @@ import AlertsConfig from '@/pages/AlertsConfig';
 import Approvals from '@/pages/Approvals';
 import IndicatorsArl from '@/pages/IndicatorsArl';
 import MinTrabajoInspection from '@/pages/MinTrabajoInspection';
+import PublicCertificate from '@/pages/PublicCertificate';
 
 function ProtectedRoute({ children }) {
   const { user, loading, permissions } = useAuth();
@@ -57,6 +58,7 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/certificate/:token" element={<PublicCertificate />} />
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/implementation" element={<ProtectedRoute><Implementation /></ProtectedRoute>} />
       <Route path="/documents" element={<ProtectedRoute><Documents /></ProtectedRoute>} />

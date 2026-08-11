@@ -383,6 +383,16 @@ Plataforma integral de gestion, implementacion y auditoria del SG-SST para empre
 - [x] Sidebar: nuevo nav "Inspeccion MinTrabajo" (icono Landmark) gated por canViewAudits
 - [x] E2E validado: POST inspeccion -> auto-selecciona medium (16 items), PUT item cumple, GET list muestra % correcto, PDF genera 11KB PDF-1.4 valido, AI refine convierte "todo bien, tiene licencia" en observacion formal MinTrabajo
 
+### Sprint 35 - Certificado Publico Compartible (May 12, 2026):
+- [x] Backend POST /mintrabajo/inspections/{id}/certificate: genera token uuid + expira en 90 dias, guarda en la inspeccion (public_certificate_token, certificate_expires_at)
+- [x] Backend DELETE /mintrabajo/inspections/{id}/certificate: revoca certificado (unset token)
+- [x] Backend GET /api/public/certificate/{token}: endpoint PUBLICO (sin auth) que devuelve datos anonimizados: nombre empresa + logo, nivel riesgo, tier, % cumplimiento, breakdown por categoria (nombre + %), datos consultor Stephania Ceballos con phone/email/portafolio URL. NO expone NIT, direccion, empleados, ni observaciones especificas
+- [x] Endpoint valida expiracion (410 Gone si expirado) y token invalido (404)
+- [x] Frontend nueva pagina publica /certificate/:token sin ProtectedRoute: card premium con header gradient azul-morado, logo empresa, numero gigante % cumplimiento con nivel EXCELENTE/SATISFACTORIO/EN MEJORA, breakdown por categoria con progress bars, bloque consultor con telefono y email clicables, CTA gradient morado "Solicita tu propia auditoria SG-SST" enlazado al PORTFOLIO_URL, tagline "Grow human. Lead better.", footer con fecha emision y vigencia
+- [x] Frontend MinTrabajoInspection: nuevo boton "Generar certificado publico" (gradient morado) en toolbar de detalle. Al generar aparece panel con URL, boton Copiar (navigator.clipboard), Ver (abre en nueva tab), Revocar (rojo). Aviso claro de anonimizacion
+- [x] Certificate token se persiste - al reabrir la inspeccion vuelve a mostrar el panel del certificado activo
+- [x] E2E validado: token generado, publico responde 200 con datos anonimizados, NIT no expuesto, revocacion invalida el token (404 despues del DELETE)
+
 ## Prioritized Backlog
 
 ### P0

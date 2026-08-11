@@ -11,7 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import API from '@/lib/api';
-import { Landmark, Plus, Trash2, FileDown, Sparkles, CheckCircle2, XCircle, Minus, Loader2, ScrollText, ChevronRight, Search } from 'lucide-react';
+import { Landmark, Plus, Trash2, FileDown, Sparkles, CheckCircle2, XCircle, Minus, Loader2, ScrollText, ChevronRight, Search, Award, Copy, X as XIcon } from 'lucide-react';
 
 const TIER_COLORS = { micro: '#2A9D8F', medium: '#0047AB', large: '#7C3AED' };
 const COMPLIANCE_COLORS = { cumple: '#2A9D8F', no_cumple: '#D90429', na: '#94A3B8' };
@@ -29,6 +29,8 @@ export default function MinTrabajoInspection() {
   const [aiLoadingAll, setAiLoadingAll] = useState(false);
   const [refining, setRefining] = useState(null);
   const [savingItem, setSavingItem] = useState(null);
+  const [certLoading, setCertLoading] = useState(false);
+  const [certInfo, setCertInfo] = useState(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -44,13 +46,20 @@ export default function MinTrabajoInspection() {
 
   const openDetail = async (id) => {
     setSelected(id);
+    setCertInfo(null);
     try {
       const res = await API.get(`/mintrabajo/inspections/${id}`);
       setDetail(res.data);
+      if (res.data?.public_certificate_token) {
+        setCertInfo({
+          url: `${window.location.origin}/certificate/${res.data.public_certificate_token}`,
+          expires_at: res.data.certificate_expires_at,
+        });
+      }
     } catch (e) { toast.error('Error cargando detalle'); }
   };
 
-  const closeDetail = () => { setSelected(null); setDetail(null); };
+  const closeDetail = () => { setSelected(null); setDetail(null); setCertInfo(null); };
 
   const handleCreate = async () => {
     try {
@@ -111,6 +120,34 @@ export default function MinTrabajoInspection() {
       toast.success('Inspeccion eliminada');
       fetchAll();
     } catch (e) { toast.error('Error'); }
+  };
+
+  const generateCertificate = async () => {
+    if (!detail) return;
+    setCertLoading(true);
+    try {
+      const res = await API.post(`/mintrabajo/inspections/${detail.inspection_id}/certificate`);
+      const publicUrl = `${window.location.origin}/certificate/${res.data.token}`;
+      setCertInfo({ url: publicUrl, expires_at: res.data.expires_at });
+      toast.success('Certificado publico generado');
+    } catch (e) { toast.error(e.response?.data?.detail || 'Error generando certificado'); }
+    setCertLoading(false);
+  };
+
+  const revokeCertificate = async () => {
+    if (!detail || !window.confirm('Revocar el certificado publico? El enlace dejara de funcionar.')) return;
+    try {
+      await API.delete(`/mintrabajo/inspections/${detail.inspection_id}/certificate`);
+      setCertInfo(null);
+      toast.success('Certificado revocado');
+    } catch (e) { toast.error('Error'); }
+  };
+
+  const copyCertUrl = () => {
+    if (certInfo?.url) {
+      navigator.clipboard.writeText(certInfo.url);
+      toast.success('Enlace copiado');
+    }
   };
 
   return (
@@ -244,8 +281,8 @@ export default function MinTrabajoInspection() {
                   <span className="text-[11px] text-[#64748B]">Fecha: {detail.inspection_date}</span>
                 </div>
               </DialogHeader>
-              <div className="flex justify-between items-center gap-2 border-b pb-2 mb-2">
-                <div className="flex items-center gap-2">
+              <div className="flex justify-between items-center gap-2 border-b pb-2 mb-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => triggerAiSuggest(detail.inspection_id)} disabled={aiLoadingAll} data-testid="ai-suggest-all-btn">
                     {aiLoadingAll ? <Loader2 className="w-3 h-3 mr-0.5 animate-spin" /> : <Sparkles className="w-3 h-3 mr-0.5" />}
                     {aiLoadingAll ? 'Generando...' : 'Regenerar sugerencias IA'}
@@ -253,9 +290,40 @@ export default function MinTrabajoInspection() {
                   <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => window.open(`${process.env.REACT_APP_BACKEND_URL}/api/mintrabajo/inspections/${detail.inspection_id}/pdf`, '_blank')}>
                     <FileDown className="w-3 h-3 mr-0.5" /> Descargar PDF
                   </Button>
+                  {!certInfo ? (
+                    <Button size="sm" className="h-7 text-[10px] bg-gradient-to-r from-[#0047AB] to-[#7C3AED] hover:opacity-90 text-white" onClick={generateCertificate} disabled={certLoading} data-testid="generate-cert-btn">
+                      {certLoading ? <Loader2 className="w-3 h-3 mr-0.5 animate-spin" /> : <Award className="w-3 h-3 mr-0.5" />} Generar certificado publico
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" className="h-7 text-[10px] border-[#D90429]/40 text-[#D90429]" onClick={revokeCertificate} data-testid="revoke-cert-btn">
+                      <XIcon className="w-3 h-3 mr-0.5" /> Revocar certificado
+                    </Button>
+                  )}
                 </div>
                 <Button size="sm" variant="ghost" onClick={closeDetail}>Cerrar</Button>
               </div>
+
+              {certInfo && (
+                <div className="bg-gradient-to-r from-[#EFF6FF] to-[#F5F3FF] border border-[#7C3AED]/30 rounded-lg p-3 mb-3" data-testid="cert-info-panel">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Award className="w-4 h-4 text-[#7C3AED]" />
+                    <span className="text-xs font-bold text-[#7C3AED]">Certificado publico activo</span>
+                    <span className="text-[10px] text-[#64748B]">Vence: {(certInfo.expires_at || '').slice(0, 10)}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input readOnly value={certInfo.url} className="flex-1 text-[11px] px-2 py-1.5 bg-white border border-[#E2E8F0] rounded font-mono text-[#0F172A]" data-testid="cert-url-input" onClick={e => e.target.select()} />
+                    <Button size="sm" variant="outline" className="h-8 text-[10px]" onClick={copyCertUrl} data-testid="copy-cert-btn">
+                      <Copy className="w-3 h-3 mr-0.5" /> Copiar
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-8 text-[10px]" onClick={() => window.open(certInfo.url, '_blank')} data-testid="preview-cert-btn">
+                      Ver
+                    </Button>
+                  </div>
+                  <p className="text-[10px] text-[#64748B] mt-2 leading-relaxed">
+                    Comparte este enlace en LinkedIn, WhatsApp o email. Muestra % cumplimiento anonimizado + CTA hacia tu portafolio. Datos sensibles (NIT, direccion, empleados) NO se exponen.
+                  </p>
+                </div>
+              )}
 
               <Accordion type="multiple" defaultValue={detail.categories.map((_, i) => `cat-${i}`)}>
                 {detail.categories.map((cat, cIdx) => {

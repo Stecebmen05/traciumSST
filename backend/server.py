@@ -5372,6 +5372,102 @@ async def delete_mintrabajo_inspection(inspection_id: str, user=Depends(require_
     return {"message": "Inspeccion eliminada"}
 
 
+@api_router.post("/mintrabajo/inspections/{inspection_id}/certificate")
+async def create_public_certificate(inspection_id: str, user=Depends(require_role("admin", "auditor", "sgsst_manager", "owner"))):
+    """Generate a public shareable certificate link (valid 90 days)."""
+    insp = await db.mintrabajo_inspections.find_one({"inspection_id": inspection_id}, {"_id": 0})
+    if not insp:
+        raise HTTPException(status_code=404, detail="Inspeccion no encontrada")
+    if not is_owner(user) and insp.get("company_id") != get_company_id(user):
+        raise HTTPException(status_code=403, detail="Sin acceso")
+    token = uuid.uuid4().hex
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=90)).isoformat()
+    await db.mintrabajo_inspections.update_one(
+        {"inspection_id": inspection_id},
+        {"$set": {"public_certificate_token": token, "certificate_expires_at": expires_at, "certificate_created_at": datetime.now(timezone.utc).isoformat()}}
+    )
+    frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    return {
+        "token": token,
+        "expires_at": expires_at,
+        "public_url": f"{frontend_url}/certificate/{token}" if frontend_url else f"/certificate/{token}",
+    }
+
+
+@api_router.delete("/mintrabajo/inspections/{inspection_id}/certificate")
+async def revoke_public_certificate(inspection_id: str, user=Depends(require_role("admin", "auditor", "sgsst_manager", "owner"))):
+    """Revoke the public certificate (invalidate token)."""
+    insp = await db.mintrabajo_inspections.find_one({"inspection_id": inspection_id}, {"_id": 0})
+    if not insp:
+        raise HTTPException(status_code=404, detail="Inspeccion no encontrada")
+    if not is_owner(user) and insp.get("company_id") != get_company_id(user):
+        raise HTTPException(status_code=403, detail="Sin acceso")
+    await db.mintrabajo_inspections.update_one(
+        {"inspection_id": inspection_id},
+        {"$unset": {"public_certificate_token": "", "certificate_expires_at": "", "certificate_created_at": ""}}
+    )
+    return {"message": "Certificado revocado"}
+
+
+@app.get("/api/public/certificate/{token}")
+async def public_certificate(token: str):
+    """Public endpoint (no auth) - returns anonymized certificate data + CTA."""
+    insp = await db.mintrabajo_inspections.find_one({"public_certificate_token": token}, {"_id": 0})
+    if not insp:
+        raise HTTPException(status_code=404, detail="Certificado no encontrado o revocado")
+    # Check expiration
+    exp = insp.get("certificate_expires_at", "")
+    if exp:
+        try:
+            if datetime.fromisoformat(exp.replace("Z", "+00:00")) < datetime.now(timezone.utc):
+                raise HTTPException(status_code=410, detail="Certificado expirado")
+        except (ValueError, AttributeError):
+            pass
+    company = await db.companies.find_one({"company_id": insp["company_id"]}, {"_id": 0}) or {}
+    # Anonymized data: no NIT, no address, no employee counts
+    total = sum(len(c["items"]) for c in insp["categories"])
+    cumple = sum(1 for c in insp["categories"] for it in c["items"] if it.get("compliance") == "cumple")
+    no_cumple = sum(1 for c in insp["categories"] for it in c["items"] if it.get("compliance") == "no_cumple")
+    na = sum(1 for c in insp["categories"] for it in c["items"] if it.get("compliance") == "na")
+    pct = round(100 * cumple / max(1, total - na)) if (total - na) > 0 else 0
+    # Category breakdown (anonymized, no per-item details)
+    categories_summary = []
+    for cat in insp["categories"]:
+        cat_total = len(cat["items"])
+        cat_cumple = sum(1 for it in cat["items"] if it.get("compliance") == "cumple")
+        cat_na = sum(1 for it in cat["items"] if it.get("compliance") == "na")
+        cat_pct = round(100 * cat_cumple / max(1, cat_total - cat_na)) if (cat_total - cat_na) > 0 else 0
+        categories_summary.append({
+            "name": cat["name"],
+            "total": cat_total,
+            "cumple": cat_cumple,
+            "compliance_pct": cat_pct,
+        })
+    return {
+        "company_name": company.get("name", ""),
+        "company_logo": company.get("logo_base64", "") or company.get("logo", ""),
+        "risk_level": company.get("risk_level", 2),
+        "tier_label": insp.get("tier_label", ""),
+        "inspection_date": insp.get("inspection_date", ""),
+        "inspector_name": insp.get("inspector_name", ""),
+        "compliance_pct": pct,
+        "items_total": total,
+        "items_cumple": cumple,
+        "items_no_cumple": no_cumple,
+        "items_na": na,
+        "categories": categories_summary,
+        "issued_at": insp.get("certificate_created_at", ""),
+        "expires_at": exp,
+        "consultant": {
+            "name": "Stephania Ceballos Mendoza",
+            "title": "Psicologa | Especialista en SST | Auditora HSEQ certificada SGS",
+            "portfolio_url": os.environ.get("PORTFOLIO_URL", "https://portal-estrategico.preview.emergentagent.com/"),
+            "email": "stephaniaceballosmendoza@gmail.com",
+            "phone": "+57 321 620 8039",
+        },
+    }
+
+
 app.include_router(api_router)
 
 # Kubernetes health probe endpoints (root-level, NO /api prefix).
