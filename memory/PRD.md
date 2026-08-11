@@ -369,6 +369,20 @@ Plataforma integral de gestion, implementacion y auditoria del SG-SST para empre
 - [x] Nuevos campos en modelo Company: legal_representative, legal_representative_id, sgsst_responsible, sgsst_responsible_id
 - [x] Frontend Companies.js: nueva seccion "Datos para Actas Oficiales" en dialog de crear/editar empresa con 4 campos
 
+### Sprint 34 - Inspeccion General MinTrabajo con IA (May 12, 2026):
+- [x] Parser openpyxl del Anexo Tecnico oficial V1.0 -> genera /app/backend/mintrabajo_checklists.py con 3 tiers (micro 6 items, medium 16 items, large 52 items) desde las hojas oficiales del Excel
+- [x] Auto-seleccion de tier basado en workers_count y risk_level (5 workers R1 -> micro; 25 R2 -> medium; 100 R3 -> large; 10 R4 -> large)
+- [x] Nueva coleccion MongoDB mintrabajo_inspections con estructura anidada (categorias -> items) que preserva codigo estandar, apoyo legal, descripcion oficial y lista de evidencias tipicas por item
+- [x] Endpoints: GET /tiers, POST /inspections (crea con auto-tier), GET /inspections (con resumen: % cumplimiento, cumple/no_cumple/na/pending), GET /{id}, PUT /items/{id} (compliance + observation + evidence_notes), POST /ai/suggest-all (pre-carga sugerencias IA en TODOS los items), POST /items/{id}/ai/refine (mejora redaccion inspector), GET /pdf (profesional), DELETE /{id}
+- [x] IA con Emergent LLM Key (openai gpt-4o-mini): sugerencia de verificacion pre-cargada por item con contexto de empresa (razon social, actividad, riesgo, trabajadores) + apoyo legal MinTrabajo. "Ajustar con IA" convierte notas rapidas del inspector en observacion formal MinTrabajo
+- [x] Frontend /mintrabajo: pagina completa con 3 cards de info por tier, lista con progress bar de cumplimiento, badge de estado, boton PDF/eliminar
+- [x] Dialog de creacion con auto-tier y aviso al usuario. Al crear, auto-dispara suggest-all en background (choice 2b)
+- [x] Dialog de ejecucion con Accordion por categoria, botones CUMPLE/NO CUMPLE/N.A. por item, textarea de observacion con boton "Ajustar con IA", input de evidencias, banner morado con sugerencia IA pre-cargada por item, apoyo legal y descripcion visibles
+- [x] PDF profesional: cabecera CORAL, info completa de empresa (Rep Legal, Responsable SG-SST, tier), resumen de cumplimiento con % en verde/rojo, todos los items con estado colorizado, firmas multi-parte (Inspector + Responsable SG-SST + Representante Legal)
+- [x] Modulo independiente (choice 3) - NO cascadea a hallazgos ni action plans del modulo Auditorias
+- [x] Sidebar: nuevo nav "Inspeccion MinTrabajo" (icono Landmark) gated por canViewAudits
+- [x] E2E validado: POST inspeccion -> auto-selecciona medium (16 items), PUT item cumple, GET list muestra % correcto, PDF genera 11KB PDF-1.4 valido, AI refine convierte "todo bien, tiene licencia" en observacion formal MinTrabajo
+
 ## Prioritized Backlog
 
 ### P0

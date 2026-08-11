@@ -5,7 +5,7 @@ import API from '@/lib/api';
 import {
   LayoutDashboard, FileText, Shield, AlertTriangle,
   ClipboardList, GraduationCap, Search, FileBarChart,
-  LogOut, Menu, X, ChevronLeft, User, Building2, ChevronDown, Users, Globe, Bell, Inbox, Activity
+  LogOut, Menu, X, ChevronLeft, User, Building2, ChevronDown, Users, Globe, Bell, Inbox, Activity, Landmark
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -90,6 +90,7 @@ export default function Layout({ children }) {
     { path: '/incidents', label: 'Incidentes', icon: Shield, show: canReportIncidents },
     { path: '/training', label: 'Capacitacion', icon: GraduationCap, show: canViewTraining },
     { path: '/audits', label: 'Auditorias', icon: Search, show: canViewAudits },
+    { path: '/mintrabajo', label: 'Inspeccion MinTrabajo', icon: Landmark, show: canViewAudits },
     { path: '/indicators-arl', label: 'Indicadores ARL', icon: Activity, show: canViewReports },
     { path: '/reports', label: 'Reportes', icon: FileBarChart, show: canViewReports },
   ];

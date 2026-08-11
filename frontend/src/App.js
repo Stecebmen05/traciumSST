@@ -20,6 +20,7 @@ import ConsultantDashboard from '@/pages/ConsultantDashboard';
 import AlertsConfig from '@/pages/AlertsConfig';
 import Approvals from '@/pages/Approvals';
 import IndicatorsArl from '@/pages/IndicatorsArl';
+import MinTrabajoInspection from '@/pages/MinTrabajoInspection';
 
 function ProtectedRoute({ children }) {
   const { user, loading, permissions } = useAuth();
@@ -70,6 +71,7 @@ function AppRouter() {
       <Route path="/alerts" element={<ProtectedRoute><AlertsConfig /></ProtectedRoute>} />
       <Route path="/approvals" element={<ProtectedRoute><Approvals /></ProtectedRoute>} />
       <Route path="/indicators-arl" element={<ProtectedRoute><IndicatorsArl /></ProtectedRoute>} />
+      <Route path="/mintrabajo" element={<ProtectedRoute><MinTrabajoInspection /></ProtectedRoute>} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );

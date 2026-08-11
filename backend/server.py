@@ -5034,6 +5034,344 @@ async def generate_audit_report_pdf(audit_id: str, user=Depends(get_current_user
     return StreamingResponse(buf, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 # Include router and middleware
+from mintrabajo_checklists import MINTRABAJO_CHECKLISTS, select_tier, get_checklist, count_items
+
+
+@api_router.get("/mintrabajo/tiers")
+async def mintrabajo_tiers(user=Depends(get_current_user)):
+    """Return the 3 available checklist tiers and their metadata."""
+    return {
+        tier: {
+            "label": data["label"],
+            "categories_count": len(data["categories"]),
+            "items_count": sum(len(c["items"]) for c in data["categories"])
+        }
+        for tier, data in MINTRABAJO_CHECKLISTS.items()
+    }
+
+
+@api_router.post("/mintrabajo/inspections")
+async def create_mintrabajo_inspection(request: Request, user=Depends(require_role("admin", "auditor", "sgsst_manager"))):
+    """Create a new MinTrabajo General Inspection. Auto-selects tier based on active company."""
+    body = await request.json()
+    cid = get_company_id(user)
+    company = await db.companies.find_one({"company_id": cid}, {"_id": 0})
+    if not company:
+        raise HTTPException(status_code=404, detail="No hay empresa activa asignada")
+
+    tier = select_tier(company.get("workers_count", 25), company.get("risk_level", 2))
+    checklist = get_checklist(tier)
+
+    insp_id = f"insp_{uuid.uuid4().hex[:8]}"
+    now = datetime.now(timezone.utc).isoformat()
+    inspection = {
+        "inspection_id": insp_id,
+        "company_id": cid,
+        "title": body.get("title", f"Inspeccion General MinTrabajo - {company.get('name', '')}"),
+        "tier": tier,
+        "tier_label": checklist["label"],
+        "inspector_name": body.get("inspector_name", "").strip() or user.get("name", ""),
+        "inspection_date": body.get("inspection_date", now[:10]),
+        "status": "in_progress",  # in_progress | completed
+        "categories": [],
+        "created_by": user.get("user_id", ""),
+        "created_at": now,
+    }
+
+    # Instantiate items with unique IDs and default state
+    for cat in checklist["categories"]:
+        cat_items = []
+        for it in cat["items"]:
+            cat_items.append({
+                "item_id": f"itm_{uuid.uuid4().hex[:8]}",
+                "code": it["code"],
+                "name": it["name"],
+                "legal": it["legal"],
+                "description": it["description"],
+                "evidences": it["evidences"],
+                "compliance": None,  # "cumple" | "no_cumple" | "na"
+                "observation": "",
+                "evidence_notes": "",
+                "ai_suggestion": "",
+            })
+        inspection["categories"].append({"name": cat["name"], "items": cat_items})
+
+    await db.mintrabajo_inspections.insert_one(inspection)
+    inspection.pop("_id", None)
+    return inspection
+
+
+@api_router.get("/mintrabajo/inspections")
+async def list_mintrabajo_inspections(user=Depends(get_current_user)):
+    cid = get_company_id(user)
+    filt = {} if is_owner(user) else {"company_id": cid}
+    inspections = await db.mintrabajo_inspections.find(filt, {"_id": 0}).sort("created_at", -1).to_list(100)
+    # Summary only (no full categories tree)
+    for i in inspections:
+        cats = i.get("categories", [])
+        total = sum(len(c["items"]) for c in cats)
+        cumple = sum(1 for c in cats for it in c["items"] if it.get("compliance") == "cumple")
+        no_cumple = sum(1 for c in cats for it in c["items"] if it.get("compliance") == "no_cumple")
+        na = sum(1 for c in cats for it in c["items"] if it.get("compliance") == "na")
+        pending = total - cumple - no_cumple - na
+        i["items_total"] = total
+        i["items_cumple"] = cumple
+        i["items_no_cumple"] = no_cumple
+        i["items_na"] = na
+        i["items_pending"] = pending
+        i["compliance_pct"] = round(100 * cumple / max(1, total - na)) if (total - na) > 0 else 0
+        i.pop("categories", None)
+    return inspections
+
+
+@api_router.get("/mintrabajo/inspections/{inspection_id}")
+async def get_mintrabajo_inspection(inspection_id: str, user=Depends(get_current_user)):
+    insp = await db.mintrabajo_inspections.find_one({"inspection_id": inspection_id}, {"_id": 0})
+    if not insp:
+        raise HTTPException(status_code=404, detail="Inspeccion no encontrada")
+    if not is_owner(user) and insp.get("company_id") != get_company_id(user):
+        raise HTTPException(status_code=403, detail="Sin acceso a esta inspeccion")
+    return insp
+
+
+@api_router.put("/mintrabajo/inspections/{inspection_id}/items/{item_id}")
+async def update_mintrabajo_item(inspection_id: str, item_id: str, request: Request, user=Depends(require_role("admin", "auditor", "sgsst_manager"))):
+    body = await request.json()
+    updates = {}
+    for f in ("compliance", "observation", "evidence_notes"):
+        if f in body:
+            updates[f"categories.$[c].items.$[i].{f}"] = body[f]
+    if not updates:
+        return {"message": "sin cambios"}
+    result = await db.mintrabajo_inspections.update_one(
+        {"inspection_id": inspection_id},
+        {"$set": updates, "$currentDate": {"updated_at": True}},
+        array_filters=[{"c.items.item_id": item_id}, {"i.item_id": item_id}]
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Item no encontrado")
+    return {"message": "Item actualizado"}
+
+
+@api_router.post("/mintrabajo/inspections/{inspection_id}/ai/suggest-all")
+async def mintrabajo_ai_suggest_all(inspection_id: str, user=Depends(require_role("admin", "auditor", "sgsst_manager"))):
+    """Pre-generate AI verification suggestions for every item that has no suggestion yet."""
+    insp = await db.mintrabajo_inspections.find_one({"inspection_id": inspection_id}, {"_id": 0})
+    if not insp:
+        raise HTTPException(status_code=404, detail="Inspeccion no encontrada")
+    company = await db.companies.find_one({"company_id": insp["company_id"]}, {"_id": 0}) or {}
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY no configurada")
+
+    generated = 0
+    for c_idx, cat in enumerate(insp["categories"]):
+        for i_idx, it in enumerate(cat["items"]):
+            if it.get("ai_suggestion"):
+                continue
+            prompt = f"""Eres un inspector senior de MinTrabajo Colombia experto en SG-SST (Res. 0312/2019, Dec. 1072/2015).
+Empresa: {company.get('name','')} | Actividad: {company.get('economic_activity','N/A')} | Trabajadores: {company.get('workers_count',0)} | Riesgo: {company.get('risk_level',2)}
+Estandar {it['code']} - {it['name']}
+Apoyo legal: {it['legal']}
+Descripcion oficial: {it['description']}
+Evidencias tipicas: {', '.join(it['evidences'])}
+
+Genera una sugerencia PRACTICA de verificacion (max 5 vinetas cortas, formato lista con "- ") sobre QUE revisar, QUE preguntar al empleador, y QUE documentos exigir. Se especifico al sector y tamano de la empresa. No repitas la descripcion; ve directo a acciones concretas."""
+            try:
+                chat = LlmChat(api_key=api_key, session_id=f"mintrabajo-{inspection_id}-{it['item_id']}", system_message="Eres un inspector experto en SG-SST Colombia. Respondes conciso, actionable, en espanol formal.").with_model("openai", "gpt-4o-mini")
+                resp = await chat.send_message(UserMessage(text=prompt))
+                text = (resp or "").strip()
+                insp["categories"][c_idx]["items"][i_idx]["ai_suggestion"] = text[:1500]
+                generated += 1
+            except Exception as e:
+                logger.warning(f"AI suggest failed for {it['code']}: {e}")
+
+    await db.mintrabajo_inspections.update_one(
+        {"inspection_id": inspection_id},
+        {"$set": {"categories": insp["categories"]}, "$currentDate": {"updated_at": True}}
+    )
+    return {"message": f"Sugerencias generadas: {generated}", "generated": generated}
+
+
+@api_router.post("/mintrabajo/inspections/{inspection_id}/items/{item_id}/ai/refine")
+async def mintrabajo_ai_refine(inspection_id: str, item_id: str, request: Request, user=Depends(require_role("admin", "auditor", "sgsst_manager"))):
+    """Refine an inspector's raw notes into a formal MinTrabajo-style observation."""
+    body = await request.json()
+    raw_text = (body.get("text") or "").strip()
+    if not raw_text:
+        raise HTTPException(status_code=400, detail="Texto vacio")
+    insp = await db.mintrabajo_inspections.find_one({"inspection_id": inspection_id}, {"_id": 0})
+    if not insp:
+        raise HTTPException(status_code=404, detail="Inspeccion no encontrada")
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    prompt = f"""Convierte esta nota rapida de inspector en una OBSERVACION FORMAL estilo MinTrabajo (2-4 oraciones, terminologia SG-SST, tono tecnico neutral, cita norma si aplica). Nota:
+{raw_text}
+"""
+    chat = LlmChat(api_key=api_key, session_id=f"mintrabajo-refine-{item_id}", system_message="Eres redactor tecnico SG-SST.").with_model("openai", "gpt-4o-mini")
+    resp = await chat.send_message(UserMessage(text=prompt))
+    return {"refined": (resp or "").strip()[:1500]}
+
+
+@api_router.get("/mintrabajo/inspections/{inspection_id}/pdf")
+async def mintrabajo_inspection_pdf(inspection_id: str, user=Depends(get_current_user)):
+    """Generate a professional MinTrabajo Inspection PDF."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, PageBreak
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib import colors
+    from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
+    insp = await db.mintrabajo_inspections.find_one({"inspection_id": inspection_id}, {"_id": 0})
+    if not insp:
+        raise HTTPException(status_code=404, detail="Inspeccion no encontrada")
+    if not is_owner(user) and insp.get("company_id") != get_company_id(user):
+        raise HTTPException(status_code=403, detail="Sin acceso")
+    company = await db.companies.find_one({"company_id": insp["company_id"]}, {"_id": 0}) or {}
+
+    CORAL = colors.HexColor("#F87060")
+    DARK = colors.HexColor("#1F3C5E")
+    LB = colors.HexColor("#F1F5F9")
+    GB = colors.HexColor("#94A3B8")
+    GREEN = colors.HexColor("#2A9D8F")
+    RED = colors.HexColor("#D90429")
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
+    el = []
+    h1 = ParagraphStyle('h1', fontName='Helvetica-Bold', fontSize=14, textColor=DARK, alignment=TA_CENTER, leading=17)
+    h2 = ParagraphStyle('h2', fontName='Helvetica-Bold', fontSize=11, textColor=DARK, leading=13, spaceBefore=6, spaceAfter=3)
+    h3 = ParagraphStyle('h3', fontName='Helvetica-Bold', fontSize=9, textColor=DARK, leading=11, spaceBefore=3)
+    body_s = ParagraphStyle('body', fontName='Helvetica', fontSize=8, alignment=TA_JUSTIFY, leading=10)
+    small = ParagraphStyle('sm', fontName='Helvetica', fontSize=7, textColor=GB, alignment=TA_CENTER, leading=9)
+
+    # Header
+    el.append(Paragraph("LISTA DE CHEQUEO - INSPECCION GENERAL SG-SST", h1))
+    el.append(Paragraph("Anexo Tecnico MinTrabajo V1.0 - Resolucion 0312 de 2019", small))
+    el.append(HRFlowable(width="100%", thickness=1.5, color=CORAL))
+    el.append(Spacer(1, 8))
+
+    # Company info
+    info = [
+        ["Razon Social:", company.get("name", "")],
+        ["NIT:", company.get("nit", "")],
+        ["Direccion:", company.get("city", "")],
+        ["Trabajadores:", str(company.get("workers_count", ""))],
+        ["Nivel de Riesgo:", ["", "I", "II", "III", "IV", "V"][company.get("risk_level", 2)]],
+        ["Representante Legal:", company.get("legal_representative", "")],
+        ["Responsable SG-SST:", company.get("sgsst_responsible", "")],
+        ["Nivel de Aplicacion:", insp.get("tier_label", "")],
+        ["Inspector:", insp.get("inspector_name", "")],
+        ["Fecha:", insp.get("inspection_date", "")],
+    ]
+    t = Table(info, colWidths=[130, 380])
+    t.setStyle(TableStyle([
+        ('FONTSIZE', (0, 0), (-1, -1), 8), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 0), (0, -1), LB),
+        ('GRID', (0, 0), (-1, -1), 0.3, GB),
+        ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+    ]))
+    el.append(t)
+    el.append(Spacer(1, 10))
+
+    # Compliance summary
+    total = sum(len(c["items"]) for c in insp["categories"])
+    cumple = sum(1 for c in insp["categories"] for it in c["items"] if it.get("compliance") == "cumple")
+    no_cumple = sum(1 for c in insp["categories"] for it in c["items"] if it.get("compliance") == "no_cumple")
+    na = sum(1 for c in insp["categories"] for it in c["items"] if it.get("compliance") == "na")
+    pct = round(100 * cumple / max(1, total - na)) if (total - na) > 0 else 0
+    summary = [
+        ["RESUMEN DE CUMPLIMIENTO", "", "", "", ""],
+        ["Total Items", "Cumple", "No Cumple", "N/A", "% Cumplimiento"],
+        [str(total), str(cumple), str(no_cumple), str(na), f"{pct}%"],
+    ]
+    st = Table(summary, colWidths=[102, 102, 102, 102, 102])
+    st.setStyle(TableStyle([
+        ('SPAN', (0, 0), (-1, 0)),
+        ('BACKGROUND', (0, 0), (-1, 0), DARK), ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('FONTNAME', (0, 0), (-1, 1), 'Helvetica-Bold'),
+        ('BACKGROUND', (0, 1), (-1, 1), LB),
+        ('TEXTCOLOR', (1, 2), (1, 2), GREEN), ('TEXTCOLOR', (2, 2), (2, 2), RED),
+        ('GRID', (0, 0), (-1, -1), 0.5, GB),
+        ('TOPPADDING', (0, 0), (-1, -1), 5), ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+    ]))
+    el.append(st)
+    el.append(Spacer(1, 12))
+
+    # Categories with items
+    for cat in insp["categories"]:
+        el.append(Paragraph(f"<b>{cat['name']}</b>", h2))
+        el.append(HRFlowable(width="100%", thickness=0.8, color=CORAL))
+        for it in cat["items"]:
+            comp = it.get("compliance", None)
+            comp_label = {"cumple": "CUMPLE", "no_cumple": "NO CUMPLE", "na": "N/A"}.get(comp, "PENDIENTE")
+            comp_color = {"cumple": GREEN, "no_cumple": RED, "na": GB}.get(comp, GB)
+            el.append(Paragraph(f"<b>{it['code']}</b> - {it['name']}", h3))
+            if it.get("legal"):
+                el.append(Paragraph(f"<i>Apoyo legal:</i> {it['legal']}", body_s))
+            if it.get("description"):
+                el.append(Paragraph(f"<i>Descripcion:</i> {it['description']}", body_s))
+            row_meta = [
+                [f"Estado: {comp_label}", f"Observacion:", it.get("observation") or "(sin observacion)"],
+            ]
+            m = Table(row_meta, colWidths=[110, 70, 340])
+            m.setStyle(TableStyle([
+                ('FONTSIZE', (0, 0), (-1, -1), 8), ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('BACKGROUND', (0, 0), (0, 0), comp_color), ('TEXTCOLOR', (0, 0), (0, 0), colors.white),
+                ('FONTNAME', (0, 0), (0, 0), 'Helvetica-Bold'), ('FONTNAME', (1, 0), (1, 0), 'Helvetica-Bold'),
+                ('GRID', (0, 0), (-1, -1), 0.3, GB), ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ('ALIGN', (0, 0), (0, 0), 'CENTER'),
+            ]))
+            el.append(m)
+            if it.get("evidence_notes"):
+                el.append(Paragraph(f"<i>Evidencias:</i> {it['evidence_notes']}", body_s))
+            el.append(Spacer(1, 6))
+        el.append(Spacer(1, 6))
+
+    # Signatures - reuse existing helper
+    el.append(PageBreak())
+    el.append(Paragraph("FIRMAS", h2))
+    el.append(HRFlowable(width="100%", thickness=1, color=CORAL))
+    el.append(Spacer(1, 20))
+    _rep_legal = (company.get("legal_representative") or "").strip() or "Nombre y firma"
+    _rep_legal_id = (company.get("legal_representative_id") or "").strip() or "____________"
+    _sgsst = (company.get("sgsst_responsible") or "").strip() or "Nombre y firma"
+    _sgsst_id = (company.get("sgsst_responsible_id") or "").strip() or "____________"
+    _inspector = insp.get("inspector_name", "") or "____________"
+    fr = [
+        ["Inspector", "Responsable SG-SST", "Representante Legal"],
+        ["_____________________", "_____________________", "_____________________"],
+        [_inspector, _sgsst, _rep_legal],
+        ["C.C. ____________", f"C.C. {_sgsst_id}", f"C.C. {_rep_legal_id}"],
+        ["Quien realiza la inspeccion", "Auditado", "Aprobacion"],
+    ]
+    fr_t = Table(fr, colWidths=[173, 173, 174])
+    fr_t.setStyle(TableStyle([
+        ('FONTSIZE', (0, 0), (-1, -1), 8), ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('TOPPADDING', (0, 1), (-1, 1), 22),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'), ('FONTNAME', (0, 2), (-1, 2), 'Helvetica-Bold'),
+        ('FONTNAME', (0, 4), (-1, 4), 'Helvetica-Oblique'), ('TEXTCOLOR', (0, 4), (-1, 4), GB),
+        ('BACKGROUND', (0, 0), (-1, 0), LB),
+    ]))
+    el.append(fr_t)
+    el.append(Spacer(1, 12))
+    el.append(Paragraph(f"Documento generado por TraciumSST el {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}", small))
+
+    doc.build(el)
+    buf.seek(0)
+    return StreamingResponse(buf, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="inspeccion-mintrabajo-{inspection_id}.pdf"'})
+
+
+@api_router.delete("/mintrabajo/inspections/{inspection_id}")
+async def delete_mintrabajo_inspection(inspection_id: str, user=Depends(require_role("admin", "auditor"))):
+    result = await db.mintrabajo_inspections.delete_one({"inspection_id": inspection_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Inspeccion no encontrada")
+    return {"message": "Inspeccion eliminada"}
+
+
 app.include_router(api_router)
 
 # Kubernetes health probe endpoints (root-level, NO /api prefix).
