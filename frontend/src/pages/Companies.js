@@ -20,7 +20,7 @@ export default function Companies() {
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ name: '', nit: '', workers_count: 25, risk_level: 2, economic_activity: '', city: '', sedes: 'Sede Principal', processes: 'Administrativo, Operativo' });
+  const [form, setForm] = useState({ name: '', nit: '', workers_count: 25, risk_level: 2, economic_activity: '', city: '', sedes: 'Sede Principal', processes: 'Administrativo, Operativo', legal_representative: '', legal_representative_id: '', sgsst_responsible: '', sgsst_responsible_id: '' });
   const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState('');
   const createFileRef = useRef(null);
@@ -86,7 +86,7 @@ export default function Companies() {
   const closeDialog = () => {
     setShowDialog(false);
     setEditingId(null);
-    setForm({ name: '', nit: '', workers_count: 25, risk_level: 2, economic_activity: '', city: '', sedes: 'Sede Principal', processes: 'Administrativo, Operativo' });
+    setForm({ name: '', nit: '', workers_count: 25, risk_level: 2, economic_activity: '', city: '', sedes: 'Sede Principal', processes: 'Administrativo, Operativo', legal_representative: '', legal_representative_id: '', sgsst_responsible: '', sgsst_responsible_id: '' });
     setLogoFile(null); setLogoPreview('');
   };
 
@@ -101,6 +101,10 @@ export default function Companies() {
       city: c.city || '',
       sedes: Array.isArray(c.sedes) ? c.sedes.join(', ') : (c.sedes || 'Sede Principal'),
       processes: Array.isArray(c.processes) ? c.processes.join(', ') : (c.processes || ''),
+      legal_representative: c.legal_representative || '',
+      legal_representative_id: c.legal_representative_id || '',
+      sgsst_responsible: c.sgsst_responsible || '',
+      sgsst_responsible_id: c.sgsst_responsible_id || '',
     });
     setLogoFile(null); setLogoPreview('');
     setShowDialog(true);
@@ -173,6 +177,30 @@ export default function Companies() {
               <div><Label className="text-xs font-semibold">Ciudad</Label><Input value={form.city} onChange={e => setForm({...form, city: e.target.value})} className="mt-1" /></div>
               <div><Label className="text-xs font-semibold">Sedes (separadas por coma)</Label><Input value={form.sedes} onChange={e => setForm({...form, sedes: e.target.value})} className="mt-1" /></div>
               <div><Label className="text-xs font-semibold">Procesos (separados por coma)</Label><Input value={form.processes} onChange={e => setForm({...form, processes: e.target.value})} className="mt-1" /></div>
+
+              {/* Representante Legal y Responsable SG-SST (para actas oficiales) */}
+              <div className="border border-[#E2E8F0] rounded-lg p-3 bg-[#F8FAFC]">
+                <Label className="text-xs font-bold text-[#1F3C5E]">Datos para Actas Oficiales</Label>
+                <p className="text-[10px] text-[#94A3B8] mt-0.5 mb-2">Aparecen en las firmas del Acta de Apertura, Acta de Cierre y Plan de Auditoria.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs font-semibold">Representante Legal</Label>
+                    <Input data-testid="legal-rep-name-input" value={form.legal_representative} onChange={e => setForm({...form, legal_representative: e.target.value})} className="mt-1" placeholder="Nombre completo" />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold">C.C. Rep. Legal</Label>
+                    <Input data-testid="legal-rep-id-input" value={form.legal_representative_id} onChange={e => setForm({...form, legal_representative_id: e.target.value})} className="mt-1" placeholder="1.234.567.890" />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold">Responsable SG-SST</Label>
+                    <Input data-testid="sgsst-resp-name-input" value={form.sgsst_responsible} onChange={e => setForm({...form, sgsst_responsible: e.target.value})} className="mt-1" placeholder="Nombre completo" />
+                  </div>
+                  <div>
+                    <Label className="text-xs font-semibold">C.C. Responsable SG-SST</Label>
+                    <Input data-testid="sgsst-resp-id-input" value={form.sgsst_responsible_id} onChange={e => setForm({...form, sgsst_responsible_id: e.target.value})} className="mt-1" placeholder="1.234.567.890" />
+                  </div>
+                </div>
+              </div>
 
               {/* Logo upload - solo para creacion. Para edicion usar el boton inline de la card */}
               {!editingId && (

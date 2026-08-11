@@ -360,22 +360,36 @@ def _resolve_auditor_signature(audit_auditor: str | None) -> dict:
     }
 
 
-def _audit_signature_block(audit: dict) -> tuple[list, dict]:
+def _audit_signature_block(audit: dict, company: dict | None = None) -> tuple[list, dict]:
     """Build the multi-party signature rows table for Actas (Apertura/Cierre).
+    Prefers explicit company.legal_representative / company.sgsst_responsible when set.
+    Falls back to audit.process_responsibles[0] and empty rep legal.
     Returns (table_rows, sig_info) where rows is the list-of-lists for Table()."""
+    company = company or {}
     auditor_name = (audit.get("auditor") or "").strip() or "_______________________"
-    proc = [p for p in (audit.get("process_responsibles") or []) if p]
-    auditado_name = proc[0] if proc else "_______________________"
+
+    # Auditado / Responsable SG-SST: prefer company.sgsst_responsible, fallback to process_responsibles[0]
+    _sgsst_resp = (company.get("sgsst_responsible") or "").strip()
+    if not _sgsst_resp:
+        proc = [p for p in (audit.get("process_responsibles") or []) if p]
+        _sgsst_resp = proc[0] if proc else ""
+    auditado_name = _sgsst_resp or "_______________________"
+    auditado_id = (company.get("sgsst_responsible_id") or "").strip() or "____________"
+
     cop = audit.get("copasst_member") or {}
     cop_name = (cop.get("name") or "").strip()
     cop_role = (cop.get("role") or "Miembro COPASST").strip() or "Miembro COPASST"
+
+    # Representante Legal: from company
+    _rep_legal = (company.get("legal_representative") or "").strip() or "Nombre y firma"
+    _rep_legal_id = (company.get("legal_representative_id") or "").strip() or "____________"
 
     if cop_name:
         rows = [
             ["Auditor Lider", "Responsable SG-SST / Auditado", f"COPASST ({cop_role})", "Representante Legal"],
             ["_____________________", "_____________________", "_____________________", "_____________________"],
-            [auditor_name, auditado_name, cop_name, "Nombre y firma"],
-            ["C.C. ____________", "C.C. ____________", "C.C. ____________", "C.C. ____________"],
+            [auditor_name, auditado_name, cop_name, _rep_legal],
+            [f"C.C. ____________", f"C.C. {auditado_id}", f"C.C. ____________", f"C.C. {_rep_legal_id}"],
             ["Equipo Auditor", "Auditado", "Testigo", "Aprobacion"],
         ]
         widths = [130, 130, 130, 130]
@@ -383,8 +397,8 @@ def _audit_signature_block(audit: dict) -> tuple[list, dict]:
         rows = [
             ["Auditor Lider", "Responsable SG-SST / Auditado", "Representante Legal"],
             ["_____________________", "_____________________", "_____________________"],
-            [auditor_name, auditado_name, "Nombre y firma"],
-            ["C.C. ____________", "C.C. ____________", "C.C. ____________"],
+            [auditor_name, auditado_name, _rep_legal],
+            [f"C.C. ____________", f"C.C. {auditado_id}", f"C.C. {_rep_legal_id}"],
             ["Equipo Auditor", "Auditado", "Aprobacion"],
         ]
         widths = [173, 173, 174]
@@ -3087,7 +3101,8 @@ async def generate_opening_minutes_pdf(audit_id: str, user=Depends(get_current_u
     el.append(Paragraph(f"Los asistentes a la reunion se comprometen a entregar informacion veridica y oportuna en los tiempos establecidos dentro del cronograma del Plan de Auditoria al SG-SST de {cn}.", sb))
     el.append(Spacer(1,6))
     el.append(Paragraph("<b>4. Cierre.</b>", sbb))
-    el.append(Paragraph(f"Siendo las ____:____ a.m./p.m. se da por terminada la reunion donde se apertura el proceso de auditoria al SG-SST de {cn} y se aprueba el plan de auditoria por parte del equipo auditor y los responsables del proceso y/o funciones del SG-SST, firman los que a ella asistieron.", sb))
+    _start_time_txt = audit.get("start_time", "").strip() or "____:____ a.m./p.m."
+    el.append(Paragraph(f"Siendo las {_start_time_txt} se da por terminada la reunion donde se apertura el proceso de auditoria al SG-SST de {cn} y se aprueba el plan de auditoria por parte del equipo auditor y los responsables del proceso y/o funciones del SG-SST, firman los que a ella asistieron.", sb))
     el.append(Spacer(1,10))
     el.append(Paragraph("OBSERVACIONES:", sh))
     for _ in range(3): el.append(Paragraph("_" * 95, sb))
@@ -3096,7 +3111,7 @@ async def generate_opening_minutes_pdf(audit_id: str, user=Depends(get_current_u
     el.append(HRFlowable(width="100%", thickness=1, color=CORAL))
     el.append(Spacer(1,6))
     el.append(Paragraph("FIRMAS DE LOS ASISTENTES", sh))
-    _rows, _meta = _audit_signature_block(audit)
+    _rows, _meta = _audit_signature_block(audit, company)
     _sig_t = Table(_rows, colWidths=_meta["widths"])
     _sig_t.setStyle(TableStyle([
         ('FONTSIZE', (0, 0), (-1, -1), 8),
@@ -3226,7 +3241,9 @@ async def generate_closing_minutes_pdf(audit_id: str, user=Depends(get_current_u
     el.append(Spacer(1, 8))
 
     # Meeting details
-    t = Table([["Fecha:", end_dt], ["Hora:", "____:____ a.m./p.m."], ["Lugar:", city or "_______________"]], colWidths=[80, 400])
+    _end_time = audit.get("end_time", "").strip()
+    _hora_str = _end_time if _end_time else "____:____ a.m./p.m."
+    t = Table([["Fecha:", end_dt], ["Hora de Cierre:", _hora_str], ["Lugar:", city or "_______________"]], colWidths=[80, 400])
     t.setStyle(tis)
     el.append(t)
     el.append(Spacer(1, 6))
@@ -3398,7 +3415,8 @@ async def generate_closing_minutes_pdf(audit_id: str, user=Depends(get_current_u
     # 8. CIERRE
     next_section += 1
     el.append(Paragraph(f"{next_section}. CIERRE", sh))
-    el.append(Paragraph(f"Siendo las ____:____ a.m./p.m. se da por terminada la reunion de cierre de la Auditoria {atype} al SG-SST de {cn}. Se presenta el consolidado de resultados y se socializan los hallazgos identificados, planes de accion y compromisos adquiridos.", sb))
+    _end_time_txt = audit.get("end_time", "").strip() or "____:____ a.m./p.m."
+    el.append(Paragraph(f"Siendo las {_end_time_txt} se da por terminada la reunion de cierre de la Auditoria {atype} al SG-SST de {cn}. Se presenta el consolidado de resultados y se socializan los hallazgos identificados, planes de accion y compromisos adquiridos.", sb))
     el.append(Paragraph("Firman los que a ella asistieron en constancia de lo anterior:", sb))
 
     # LISTA DE ASISTENCIA CON FIRMA
@@ -3440,7 +3458,7 @@ async def generate_closing_minutes_pdf(audit_id: str, user=Depends(get_current_u
     el.append(HRFlowable(width="100%", thickness=1, color=CORAL))
     el.append(Spacer(1, 6))
     el.append(Paragraph("FIRMAS DE LOS ASISTENTES", sh))
-    _rows, _meta = _audit_signature_block(audit)
+    _rows, _meta = _audit_signature_block(audit, company)
     _sig_t = Table(_rows, colWidths=_meta["widths"])
     _sig_t.setStyle(TableStyle([
         ('FONTSIZE', (0, 0), (-1, -1), 8),
@@ -4300,6 +4318,10 @@ async def create_company(request: Request, user=Depends(require_role("admin"))):
         "city": body.get("city", ""),
         "sedes": body.get("sedes", ["Sede Principal"]),
         "processes": body.get("processes", ["Administrativo", "Operativo"]),
+        "legal_representative": body.get("legal_representative", ""),
+        "legal_representative_id": body.get("legal_representative_id", ""),
+        "sgsst_responsible": body.get("sgsst_responsible", ""),
+        "sgsst_responsible_id": body.get("sgsst_responsible_id", ""),
         "created_by": user.get("user_id", ""),
         "created_at": datetime.now(timezone.utc).isoformat()
     }
