@@ -1,0 +1,27 @@
+{
+  "summary": "Verified MinTrabajo public certificate button bug fix. The 'Generar certificado publico' / 'Regenerar certificado' button is now ALWAYS visible in the inspection detail toolbar with a dynamic label. Full E2E flow (open detail with existing cert, revoke, regenerate, close & reopen persistence, revoke via panel) all pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "MinTrabajo detail dialog + Create dialog", "issues": ["Console warning: DialogContent requires a DialogTitle for screen reader accessibility (Radix UI a11y). Non-blocking but should be addressed by wrapping title with VisuallyHidden or adding a DialogTitle."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": ["(Optional / low-priority) Add VisuallyHidden DialogTitle to any DialogContent lacking one to silence Radix a11y warnings."],
+  "critical_code_review_comments": [
+    "generateCertificate/revokeCertificate/copyCertUrl logic is clean; button label switches correctly via `certInfo ? 'Regenerar certificado' : 'Generar certificado publico'`.",
+    "openDetail correctly hydrates certInfo from `res.data.public_certificate_token` so panel persists across reopens.",
+    "Revoke inside panel properly clears certInfo => button label reverts.",
+    "MinTrabajoInspection.js is 420 lines - still manageable but approaching split threshold (>700)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (frontend-only)", "frontend": "100%"},
+  "test_credentials": "admin@traciumsst.com / TraciumSST2026! (used successfully)",
+  "seed_data_creation": "Reused existing inspection 'Test Inspeccion Prueba' (insp_dfed18e8). Generated + revoked cert tokens during test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Bug fix for cert button visibility verified. On admin account there is 1 inspection (insp_dfed18e8) usable for future cert regression tests. Backend endpoints POST/DELETE /api/mintrabajo/inspections/{id}/certificate returned 200 during tests.",
+  "rca of the issue": "Original bug: button was rendered inside `!certInfo ? (Generate) : (Revoke)` ternary, so once an inspection already had a public_certificate_token persisted in DB, openDetail loaded certInfo and the Generar button disappeared - user only saw Revocar. Fix: button rendered unconditionally with dynamic label based on certInfo, and Revocar moved inside the cert-info panel. Verified in browser: label='Regenerar certificado' when panel present, 'Generar certificado publico' after revoke."
+}

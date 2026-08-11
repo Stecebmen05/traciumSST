@@ -290,25 +290,24 @@ export default function MinTrabajoInspection() {
                   <Button size="sm" variant="outline" className="h-7 text-[10px]" onClick={() => window.open(`${process.env.REACT_APP_BACKEND_URL}/api/mintrabajo/inspections/${detail.inspection_id}/pdf`, '_blank')}>
                     <FileDown className="w-3 h-3 mr-0.5" /> Descargar PDF
                   </Button>
-                  {!certInfo ? (
-                    <Button size="sm" className="h-7 text-[10px] bg-gradient-to-r from-[#0047AB] to-[#7C3AED] hover:opacity-90 text-white" onClick={generateCertificate} disabled={certLoading} data-testid="generate-cert-btn">
-                      {certLoading ? <Loader2 className="w-3 h-3 mr-0.5 animate-spin" /> : <Award className="w-3 h-3 mr-0.5" />} Generar certificado publico
-                    </Button>
-                  ) : (
-                    <Button size="sm" variant="outline" className="h-7 text-[10px] border-[#D90429]/40 text-[#D90429]" onClick={revokeCertificate} data-testid="revoke-cert-btn">
-                      <XIcon className="w-3 h-3 mr-0.5" /> Revocar certificado
-                    </Button>
-                  )}
+                  <Button size="sm" className="h-7 text-[10px] bg-gradient-to-r from-[#0047AB] to-[#7C3AED] hover:opacity-90 text-white" onClick={generateCertificate} disabled={certLoading} data-testid="generate-cert-btn">
+                    {certLoading ? <Loader2 className="w-3 h-3 mr-0.5 animate-spin" /> : <Award className="w-3 h-3 mr-0.5" />} {certInfo ? 'Regenerar certificado' : 'Generar certificado publico'}
+                  </Button>
                 </div>
                 <Button size="sm" variant="ghost" onClick={closeDetail}>Cerrar</Button>
               </div>
 
               {certInfo && (
                 <div className="bg-gradient-to-r from-[#EFF6FF] to-[#F5F3FF] border border-[#7C3AED]/30 rounded-lg p-3 mb-3" data-testid="cert-info-panel">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Award className="w-4 h-4 text-[#7C3AED]" />
-                    <span className="text-xs font-bold text-[#7C3AED]">Certificado publico activo</span>
-                    <span className="text-[10px] text-[#64748B]">Vence: {(certInfo.expires_at || '').slice(0, 10)}</span>
+                  <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <Award className="w-4 h-4 text-[#7C3AED]" />
+                      <span className="text-xs font-bold text-[#7C3AED]">Certificado publico activo</span>
+                      <span className="text-[10px] text-[#64748B]">Vence: {(certInfo.expires_at || '').slice(0, 10)}</span>
+                    </div>
+                    <Button size="sm" variant="outline" className="h-6 text-[10px] border-[#D90429]/40 text-[#D90429]" onClick={revokeCertificate} data-testid="revoke-cert-btn">
+                      <XIcon className="w-3 h-3 mr-0.5" /> Revocar
+                    </Button>
                   </div>
                   <div className="flex items-center gap-2">
                     <input readOnly value={certInfo.url} className="flex-1 text-[11px] px-2 py-1.5 bg-white border border-[#E2E8F0] rounded font-mono text-[#0F172A]" data-testid="cert-url-input" onClick={e => e.target.select()} />
